@@ -1,2 +1,2 @@
 # sc2_bot
-Training a model to play sc2
+Training a model to play StarCraftII
