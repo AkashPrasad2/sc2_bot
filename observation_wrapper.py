@@ -12,7 +12,6 @@ PROTOSS_STRUCTURES = [
     UnitTypeId.PHOTONCANNON,
     UnitTypeId.SHIELDBATTERY,
     UnitTypeId.TEMPLARARCHIVE,
-    UnitTypeId.DARKSHRINE,
     UnitTypeId.ROBOTICSBAY,
     UnitTypeId.ROBOTICSFACILITY,
     UnitTypeId.ASSIMILATOR,
@@ -25,17 +24,11 @@ PROTOSS_UNITS = [
     UnitTypeId.PROBE,
     UnitTypeId.ZEALOT,
     UnitTypeId.STALKER,
-    UnitTypeId.SENTRY,
     UnitTypeId.HIGHTEMPLAR,
-    UnitTypeId.DARKTEMPLAR,
     UnitTypeId.ARCHON,
     UnitTypeId.IMMORTAL,
-    UnitTypeId.DISRUPTOR,
-    UnitTypeId.OBSERVER,
-    UnitTypeId.WARPPRISM,
     UnitTypeId.CARRIER,
     UnitTypeId.VOIDRAY,
-    UnitTypeId.MOTHERSHIP,
 ]
 
 
@@ -48,18 +41,25 @@ class ObservationWrapper:
         self.observation_size = self.calculate_obs_size()
 
     def calculate_obs_size(self):
-        return len(PROTOSS_UNITS) + len(PROTOSS_STRUCTURES) + 10
+        return len(PROTOSS_UNITS) + len(PROTOSS_STRUCTURES) + 9
 
     def get_observation(self, bot, opponent):
         obs = []
 
+        # Game time (normalized to 10 min average game)
+        obs.append(bot.time / 600.0)
+
         # Player resources (normalized)
-        obs.append(bot.minerals / 1000.0)
-        obs.append(bot.vespene / 500.0)
+        obs.append(bot.minerals / 1800.0)
+        obs.append(bot.vespene / 700.0)
         obs.append(bot.supply_used / 200.0)
         obs.append(bot.supply_cap / 200.0)
-        obs.append(len(bot.units) / 100.0)
-        obs.append(len(bot.structures) / 20.0)
+        obs.append(bot.supply_left / 200.0)
+
+        # Worker saturation (important for macro)
+        worker_supply = bot.units(UnitTypeId.PROBE).amount
+        ideal_workers = bot.townhalls.amount * 16  # 16 per base (optimal)
+        obs.append(worker_supply / max(ideal_workers, 1))  # Avoid div by 0
 
         # Player structures
         for structure in PROTOSS_STRUCTURES:
@@ -67,12 +67,10 @@ class ObservationWrapper:
 
         # Player units
         for unit in PROTOSS_UNITS:
-            obs.append(bot.units(unit).amount / 50.0)
+            obs.append(bot.units(unit).amount / 30.0)
 
         # Opponent info (normalized)
         obs.append(opponent.supply_used / 200.0)
         obs.append(opponent.supply_cap / 200.0)
-        obs.append(len(opponent.units) / 100.0)
-        obs.append(len(opponent.structures) / 20.0)
 
         return obs
