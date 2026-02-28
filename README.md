@@ -1,2 +1,2 @@
-# sc2_bot
+# BetaStar
 Training a model to play StarCraftII
