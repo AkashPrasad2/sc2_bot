@@ -1,6 +1,7 @@
 # SC2 API
 burnysc2>=6.5.0
 pysc2>=3.0.0
+sc2reader>=1.8.0
 
 # Deep Learning
 torch>=2.0.0

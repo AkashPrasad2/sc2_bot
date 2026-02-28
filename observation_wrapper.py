@@ -41,9 +41,7 @@ PROTOSS_UNITS = [
 
 class ObservationWrapper:
     """
-    Converts game into a vector for neural network input
-
-    NN will take resources, supply, etc as input
+    Converts game into a vector for neural network input, storing resources, supply, etc.
     """
 
     def __init__(self):

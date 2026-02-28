@@ -24,7 +24,7 @@ class ProtossBot(BotAI):
 
 
 run_game(
-    maps.get("CyberForestLE"),
+    maps.get("AbyssalReefLE"),
     [Bot(Race.Protoss, ProtossBot()), Computer(Race.Zerg, Difficulty.VeryEasy)],
     realtime=False,
 )
