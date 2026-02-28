@@ -44,20 +44,6 @@ class ObservationWrapper:
     Converts game into a vector for neural network input
 
     NN will take resources, supply, etc as input
-    - minerals,
-    - vespene
-    - supply cap
-    - unit count
-    - worker count
-    - army count
-    - structure count
-    - enemy minerals
-    - enemy vespene
-    - enemy supply cap
-    - enemy unit count
-    - enemy worker count
-    - enemy army count
-    - enemy structure count
     """
 
     def __init__(self):
