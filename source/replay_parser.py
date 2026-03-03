@@ -299,6 +299,7 @@ class ReplayParser:
         """
         all_obs = []
         all_actions = []
+        bot_replays = []
         skipped = 0
         failed = 0
 
@@ -318,9 +319,10 @@ class ReplayParser:
                     skipped += 1
                     continue
 
-                # AbyssalReefLE replays only
-                if "Abyssal Reef" not in replay.map_name:
+                # Filter out games with AI/computer players
+                if not all(p.is_human for p in replay.players):
                     skipped += 1
+                    bot_replays.append(fname)
                     continue
 
                 pairs = self.parse_replay(replay)
@@ -345,7 +347,8 @@ class ReplayParser:
         print(
             f"\nDone. {len(X)} samples from {len(replay_files) - skipped - failed} replays.")
         print(
-            f"Skipped (wrong matchup/map): {skipped}  |  Failed (parse error): {failed}")
+            f"Skipped (bot game, etc.): {skipped}  |  Failed (parse error): {failed}")
+        print(f"Bot replays: {bot_replays}")
         print(f"Saved to: {self.output_file}")
         print(f"X shape: {X.shape}  |  y shape: {y.shape}")
         print(
