@@ -1,7 +1,7 @@
 from sc2.bot_ai import BotAI
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
-from sc2.ids.upgrade_id import UpgradeId
+from sc2.ids.upgrade_id from sc2.ids.upgrade_id import UpgradeId
 from helpers import build_structure
 
 # output layer will be an array of numbers corresponding to the differnet actions the model can take
@@ -61,40 +61,40 @@ async def execute_action(action_id: int, bot: BotAI):
             bot.townhalls.ready.first.train(UnitTypeId.PROBE)
 
     elif action_name == "build_pylon":
-        build_structure(bot, UnitTypeId.PYLON)
+        await build_structure(bot, UnitTypeId.PYLON)
 
     elif action_name == "build_gateway":
-        build_structure(bot, UnitTypeId.GATEWAY)
+        await build_structure(bot, UnitTypeId.GATEWAY)
 
     elif action_name == "build_cyberneticscore":
-        build_structure(bot, UnitTypeId.CYBERNETICSCORE)
+        await build_structure(bot, UnitTypeId.CYBERNETICSCORE)
 
     elif action_name == "build_assimilator":
-        build_structure(bot, UnitTypeId.ASSIMILATOR)
+        await build_structure(bot, UnitTypeId.ASSIMILATOR)
 
     elif action_name == "build_nexus":
-        build_structure(bot, UnitTypeId.NEXUS)
+        await build_structure(bot, UnitTypeId.NEXUS)
 
     elif action_name == "build_forge":
-        build_structure(bot, UnitTypeId.FORGE)
+        await build_structure(bot, UnitTypeId.FORGE)
 
     elif action_name == "build_stargate":
-        build_structure(bot, UnitTypeId.STARGATE)
+        await build_structure(bot, UnitTypeId.STARGATE)
 
     elif action_name == "build_robotics_facility":
-        build_structure(bot, UnitTypeId.ROBOTICSFACILITY)
+        await build_structure(bot, UnitTypeId.ROBOTICSFACILITY)
 
     elif action_name == "build_twilight_council":
-        build_structure(bot, UnitTypeId.TWILIGHTCOUNCIL)
+        await build_structure(bot, UnitTypeId.TWILIGHTCOUNCIL)
 
     elif action_name == "build_photon_cannon":
-        build_structure(bot, UnitTypeId.PHOTONCANNON)
+        await build_structure(bot, UnitTypeId.PHOTONCANNON)
 
     elif action_name == "build_fleet_beacon":
-        build_structure(bot, UnitTypeId.FLEETBEACON)
+        await build_structure(bot, UnitTypeId.FLEETBEACON)
 
     elif action_name == "build_templar_archive":
-        build_structure(bot, UnitTypeId.TEMPLARARCHIVE)
+        await build_structure(bot, UnitTypeId.TEMPLARARCHIVE)
 
     elif action_name == "train_zealot":
         if bot.can_afford(UnitTypeId.ZEALOT) and bot.structures(UnitTypeId.GATEWAY).ready.idle:
@@ -108,8 +108,8 @@ async def execute_action(action_id: int, bot: BotAI):
                     UnitTypeId.STALKER)
 
     elif action_name == "train_immortal":
-        if bot.can_afford(UnitTypeId.IMMORTAL) and bot.structures(UnitTypeId.ROBOTICSBAY).ready.idle:
-            bot.structures(UnitTypeId.ROBOTICSBAY).ready.idle.first.train(
+        if bot.can_afford(UnitTypeId.IMMORTAL) and bot.structures(UnitTypeId.ROBOTICSFACILITY).ready.idle:
+            bot.structures(UnitTypeId.ROBOTICSFACILITY).ready.idle.first.train(
                 UnitTypeId.IMMORTAL)
 
     elif action_name == "train_voidray":
@@ -118,9 +118,9 @@ async def execute_action(action_id: int, bot: BotAI):
                 UnitTypeId.VOIDRAY)
 
     elif action_name == "train_carrier":
-        if bot.can_afford(UnitTypeId.VOIDRAY) and bot.structures(UnitTypeId.FLEETBEACON).ready and bot.structures(UnitTypeId.STARGATE).ready.idle:
+        if bot.can_afford(UnitTypeId.CARRIER) and bot.structures(UnitTypeId.FLEETBEACON).ready and bot.structures(UnitTypeId.STARGATE).ready.idle:
             bot.structures(UnitTypeId.STARGATE).ready.idle.first.train(
-                UnitTypeId.VOIDRAY)
+                UnitTypeId.CARRIER)
 
     elif action_name == "train_high_templar":
         if bot.can_afford(UnitTypeId.HIGHTEMPLAR) and bot.structures(UnitTypeId.TEMPLARARCHIVE).ready:

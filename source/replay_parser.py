@@ -151,8 +151,8 @@ class ReplayParser:
 
     def __init__(
         self,
-        replay_folder=r"C:\Users\akash\Projects\sc2_bot\replays\raw",
-        output_file=r"C:\Users\akash\Projects\sc2_bot\replays\parsed\dataset.npz",
+        replay_folder=r"C:\dev\BetaStar\replays\raw",
+        output_file=r"C:\dev\BetaStar\replays\parsed\dataset.npz",
         debug=True,
     ):
         self.replay_folder = replay_folder

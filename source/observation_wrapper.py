@@ -2,6 +2,7 @@ from sc2.bot_ai import BotAI  # for our bot
 from sc2.player import Bot, Computer  # for opponent
 from sc2.ids.unit_typeid import UnitTypeId
 
+# 15 structures
 PROTOSS_STRUCTURES = [
     UnitTypeId.NEXUS,
     UnitTypeId.PYLON,
@@ -20,6 +21,7 @@ PROTOSS_STRUCTURES = [
     UnitTypeId.FLEETBEACON,
 ]
 
+# 8 units
 PROTOSS_UNITS = [
     UnitTypeId.PROBE,
     UnitTypeId.ZEALOT,
@@ -41,7 +43,8 @@ class ObservationWrapper:
         self.observation_size = self.calculate_obs_size()
 
     def calculate_obs_size(self):
-        return len(PROTOSS_UNITS) + len(PROTOSS_STRUCTURES) + 8
+        # 7 base features + 15 structures + 8 units + 1 opp_supply = 31
+        return 7 + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + 1
 
     def get_observation(self, bot, opponent):
         obs = []
