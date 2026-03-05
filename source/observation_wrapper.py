@@ -43,8 +43,8 @@ class ObservationWrapper:
         self.observation_size = self.calculate_obs_size()
 
     def calculate_obs_size(self):
-        # 7 base features + 15 structures + 8 units + 1 opp_supply = 31
-        return 7 + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + 1
+        # 6 base features + 15 structures + 8 units + 1 opp_supply = 30
+        return 6 + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + 1
 
     def get_observation(self, bot, opponent):
         obs = []
@@ -57,9 +57,8 @@ class ObservationWrapper:
         obs.append(bot.vespene / 700.0)
         obs.append(bot.supply_used / 200.0)
         obs.append(bot.supply_cap / 200.0)
-        obs.append(bot.supply_left / 200.0)
 
-        # Worker saturation (for macro)
+        # Worker saturation (for learning macro better)
         worker_supply = bot.units(UnitTypeId.PROBE).amount
         ideal_workers = bot.townhalls.amount * 22  # 16 for minerals, 6 for vespene
         obs.append(worker_supply / max(ideal_workers, 1))  # Avoid div by 0
