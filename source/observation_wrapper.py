@@ -1,5 +1,5 @@
-from sc2.bot_ai import BotAI  # for our bot
-from sc2.player import Bot, Computer  # for opponent
+from sc2.bot_ai import BotAI
+from sc2.player import Bot, Computer
 from sc2.ids.unit_typeid import UnitTypeId
 
 # 15 structures
@@ -36,42 +36,62 @@ PROTOSS_UNITS = [
 
 class ObservationWrapper:
     """
-    Converts game into a vector for neural network input, storing resources, supply, etc.
+    Converts game state into a flat vector for neural network input.
+
+    Feature layout (53 total):
+        [0]     game time (normalized)
+        [1]     minerals
+        [2]     vespene
+        [3]     supply_used
+        [4]     supply_cap
+        [5]     worker saturation
+        [6:21]  completed structure counts   (15)
+        [21:29] completed unit counts        (8)
+        [29:44] in-progress structure counts (15)
+        [44:52] in-progress unit counts      (8)
+        [52]    opponent supply_used
     """
 
     def __init__(self):
         self.observation_size = self.calculate_obs_size()
 
     def calculate_obs_size(self):
-        # 6 base features + 15 structures + 8 units + 1 opp_supply = 30
-        return 6 + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + 1
+        # 6 base + 15 structures + 8 units + 15 structures_in_progress + 8 units_in_progress + 1 opp
+        return 6 + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + len(PROTOSS_STRUCTURES) + len(PROTOSS_UNITS) + 1
 
-    def get_observation(self, bot, opponent):
+    def get_observation(self, bot, opponent=None):
         obs = []
 
-        # Game time (normalized to 12 min average game)
+        # --- Base features ---
         obs.append(bot.time / 720.0)
-
-        # Player resources (normalized)
         obs.append(bot.minerals / 1800.0)
         obs.append(bot.vespene / 700.0)
         obs.append(bot.supply_used / 200.0)
         obs.append(bot.supply_cap / 200.0)
 
-        # Worker saturation (for learning macro better)
         worker_supply = bot.units(UnitTypeId.PROBE).amount
-        ideal_workers = bot.townhalls.amount * 22  # 16 for minerals, 6 for vespene
-        obs.append(worker_supply / max(ideal_workers, 1))  # Avoid div by 0
+        ideal_workers = bot.townhalls.amount * 22
+        obs.append(worker_supply / max(ideal_workers, 1))
 
-        # Player structures
+        # --- Completed structures ---
         for structure in PROTOSS_STRUCTURES:
-            obs.append(bot.structures(structure).amount / 10.0)
+            obs.append(bot.structures(structure).ready.amount / 10.0)
 
-        # Player units
+        # --- Completed units ---
         for unit in PROTOSS_UNITS:
             obs.append(bot.units(unit).amount / 30.0)
 
-        # Opponent info (normalized)
+        # --- In-progress structures (under construction) ---
+        for structure in PROTOSS_STRUCTURES:
+            obs.append(bot.structures(structure).not_ready.amount / 10.0)
+
+        # --- In-progress units (queued in production buildings) ---
+        # already_pending() counts units currently being trained across all
+        # production buildings. Normalised identically to completed units.
+        for unit in PROTOSS_UNITS:
+            obs.append(bot.already_pending(unit) / 30.0)
+
+        # --- Opponent ---
         obs.append(opponent.supply_used / 200.0)
 
         return obs

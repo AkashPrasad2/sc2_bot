@@ -1,133 +1,225 @@
 """
-SC2 Protoss Imitation Learning — MLP Model + Training Script
+SC2 Protoss Imitation Learning — LSTM Model + Training Script
 =============================================================
-Architecture: 31 -> 256 -> 256 -> 128 -> 30
-Activations:  GELU  (ReLu but avoids dying neurons)
-Regularization: Dropout(0.3) between hidden layers (some features are related)
-Loss: CrossEntropyLoss with class weights (handles imbalanced action distribution)
+Architecture:
+    obs (53,) -> Linear encoder (53->64) -> LSTM (64->128, 1 layer)
+              -> MLP head (128->64->30 logits)
+
+Changes from previous version:
+  - OBS_SIZE updated from 30 to 53 (adds 15 pending structure counts
+    and 8 pending unit counts from observation_wrapper.py)
+  - Action mask removed from predict_action. Illegal actions now fail
+    silently in execute_action and the bot just waits — this lets the
+    model learn timing implicitly (e.g. keep trying build_nexus until
+    minerals are available) rather than being hard-blocked.
 """
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Config — edit these paths to match your setup
+# Config
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints"
 
+OBS_SIZE = 53   # 6 base + 15 structures + 8 units + 15 pending structures + 8 pending units + 1 opp
+# must match actions.py (action 0 = do_nothing, never trained but kept for index stability)
+NUM_ACTIONS = 30
 
-OBS_SIZE = 30  # from observation_wrapper.py input length
-NUM_ACTIONS = 30  # from actions.py action length
-
-BATCH_SIZE = 256
-EPOCHS = 100
-LR = 3e-4   # Adam's "golden" LR for MLPs
-VAL_SPLIT = 0.15
+# Model hyper-params
+ENCODER_DIM = 64
+LSTM_HIDDEN = 128
+LSTM_LAYERS = 1
+HEAD_HIDDEN = 64
 DROPOUT = 0.3
+
+# Training hyper-params
+BATCH_SIZE = 32
+EPOCHS = 80
+LR = 3e-4
+VAL_SPLIT = 0.15
 SEED = 54
+
 
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
 
-
-class ProtossModel(nn.Module):
+class ProtossLSTMModel(nn.Module):
     """
-    3-hidden-layer MLP for macro action prediction.
+    Encodes each game-state observation, feeds it through an LSTM that carries
+    context across the whole game, then decodes each hidden state into action
+    logits via a small MLP.
 
-    Why this architecture:
-    - 256->256->128: wider early layers capture feature interactions
-      (e.g. minerals + supply + structure counts), narrower final layer
-      funnels into 30 action logits without forcing too abrupt a collapse.
-    - GELU: smooth activation that keeps gradients alive through all neurons.
-      ReLU can permanently zero out neurons ("dying ReLU"); GELU avoids this.
-    - Dropout(0.3): obs vector has correlated features (supply_used,
-      supply_cap, supply_left all move together). Dropout prevents the network
-      from over-relying on any single feature.
-    - BatchNorm before activation: stabilizes training on the unnormalized
-      resource values that slip through despite your /1800 normalization.
+    Training: full padded sequences via PackedSequence.
+    Inference: one step at a time, (h, c) carried externally by the bot.
     """
 
     def __init__(
         self,
-        obs_size: int = OBS_SIZE,
+        obs_size:    int = OBS_SIZE,
+        encoder_dim: int = ENCODER_DIM,
+        lstm_hidden: int = LSTM_HIDDEN,
+        lstm_layers: int = LSTM_LAYERS,
+        head_hidden: int = HEAD_HIDDEN,
         num_actions: int = NUM_ACTIONS,
-        dropout: float = DROPOUT,
+        dropout:     float = DROPOUT,
     ):
         super().__init__()
+        self.lstm_hidden = lstm_hidden
+        self.lstm_layers = lstm_layers
 
-        def block(in_dim, out_dim):
-            return nn.Sequential(
-                nn.Linear(in_dim, out_dim),
-                nn.BatchNorm1d(out_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-            )
-
-        self.net = nn.Sequential(
-            block(obs_size, 256),
-            block(256, 256),
-            block(256, 128),
-            # straight logits — CrossEntropyLoss handles softmax
-            nn.Linear(128, num_actions),
+        self.encoder = nn.Sequential(
+            nn.Linear(obs_size, encoder_dim),
+            nn.LayerNorm(encoder_dim),
+            nn.GELU(),
         )
 
-        # Weight init: Kaiming (He) is designed for ReLU-family activations incl. GELU.
-        # It keeps variance stable as signal passes through deep layers.
-        for m in self.modules():
+        self.lstm = nn.LSTM(
+            input_size=encoder_dim,
+            hidden_size=lstm_hidden,
+            num_layers=lstm_layers,
+            batch_first=True,
+            dropout=dropout if lstm_layers > 1 else 0.0,
+        )
+
+        self.head = nn.Sequential(
+            nn.Linear(lstm_hidden, head_hidden),
+            nn.LayerNorm(head_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(head_hidden, num_actions),
+        )
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for name, p in self.lstm.named_parameters():
+            if "weight_ih" in name:
+                nn.init.xavier_uniform_(p)
+            elif "weight_hh" in name:
+                nn.init.orthogonal_(p)
+            elif "bias" in name:
+                nn.init.zeros_(p)
+                n = p.size(0)
+                p.data[n // 4: n // 2].fill_(1.0)  # forget gate bias = 1
+        for m in self.head.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 nn.init.zeros_(m.bias)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+    def forward(
+        self,
+        x:       torch.Tensor,        # (batch, seq_len, obs_size) padded
+        lengths: torch.Tensor,        # (batch,) true lengths
+        hc:      tuple | None = None,  # optional (h_0, c_0) for inference
+    ) -> tuple[torch.Tensor, tuple]:
+        """
+        Returns:
+            logits — (batch, seq_len, num_actions)
+            hc     — (h_n, c_n) final hidden/cell states
+        """
+        batch, seq_len, _ = x.shape
+        enc = self.encoder(x.reshape(-1, x.size(-1))
+                           ).reshape(batch, seq_len, -1)
+        packed = pack_padded_sequence(
+            enc, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        packed_out, hc_out = self.lstm(packed, hc)
+        out, _ = pad_packed_sequence(
+            packed_out, batch_first=True, total_length=seq_len)
+        logits = self.head(out)
+        return logits, hc_out
+
+    def init_hidden(self, batch_size: int = 1, device: str = "cpu"):
+        zeros = torch.zeros(self.lstm_layers, batch_size,
+                            self.lstm_hidden, device=device)
+        return (zeros, zeros.clone())
+
+
+# ---------------------------------------------------------------------------
+# Dataset
+# ---------------------------------------------------------------------------
+
+class SequenceDataset(Dataset):
+    """
+    Each item is one replay: (obs_tensor (T, OBS_SIZE), act_tensor (T,)).
+    Loaded from a .npz whose 'sequences' field is an object array of
+    (T_i, OBS_SIZE+1) float32 arrays (obs columns + action column).
+    """
+
+    def __init__(self, path: str):
+        data = np.load(path, allow_pickle=True)
+        raw = data["sequences"]
+        self.sequences = []
+        for seq in raw:
+            seq = seq.astype(np.float32)
+            obs = torch.tensor(seq[:, :OBS_SIZE], dtype=torch.float32)
+            act = torch.tensor(seq[:, OBS_SIZE].astype(
+                np.int64), dtype=torch.long)
+            self.sequences.append((obs, act))
+        lengths = [len(s[0]) for s in self.sequences]
+        print(f"Loaded {len(self.sequences)} sequences | "
+              f"lengths: min={min(lengths)}, max={max(lengths)}, mean={np.mean(lengths):.0f}")
+
+    def __len__(self):
+        return len(self.sequences)
+
+    def __getitem__(self, idx):
+        return self.sequences[idx]
+
+
+def collate_sequences(batch):
+    """
+    Pad variable-length sequences for batched training.
+    Padding value -100 is ignored by CrossEntropyLoss(ignore_index=-100).
+    """
+    obs_list, act_list = zip(*batch)
+    lengths = torch.tensor([len(o) for o in obs_list], dtype=torch.long)
+    obs_pad = pad_sequence(obs_list, batch_first=True, padding_value=0.0)
+    act_pad = pad_sequence(act_list, batch_first=True, padding_value=-100)
+    return obs_pad, act_pad, lengths
 
 
 # ---------------------------------------------------------------------------
 # Training helpers
 # ---------------------------------------------------------------------------
 
-def compute_class_weights(y: np.ndarray, num_classes: int) -> torch.Tensor:
-    """
-    Inverse-frequency weighting so rare actions (e.g. build_fleet_beacon)
-    get the same gradient signal as common ones (train_probe, build_pylon).
-    """
-    counts = np.bincount(y, minlength=num_classes).astype(np.float32)
-    # avoid div/0 for unseen actions
+def compute_class_weights(dataset: SequenceDataset, num_classes: int) -> torch.Tensor:
+    counts = np.zeros(num_classes, dtype=np.float32)
+    for _, act_seq in dataset.sequences:
+        for a in act_seq.numpy():
+            counts[int(a)] += 1
     counts = np.where(counts == 0, 1.0, counts)
     weights = 1.0 / counts
-    weights /= weights.sum()                        # normalize to sum=1
+    weights /= weights.sum()
     return torch.tensor(weights, dtype=torch.float32)
-
-
-def load_dataset(path: str):
-    data = np.load(path)
-    X = torch.tensor(data["X"], dtype=torch.float32)
-    y = torch.tensor(data["y"], dtype=torch.long)
-    print(f"Loaded dataset: X={X.shape}, y={y.shape}")
-    print(
-        f"Action distribution: { {int(i): int((data['y']==i).sum()) for i in np.unique(data['y'])} }")
-    return X, y
 
 
 def train_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss, correct, total = 0.0, 0, 0
-    for X_batch, y_batch in loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+    for obs_pad, act_pad, lengths in loader:
+        obs_pad = obs_pad.to(device)
+        act_pad = act_pad.to(device)
+        lengths = lengths.to(device)
         optimizer.zero_grad()
-        logits = model(X_batch)
-        loss = criterion(logits, y_batch)
+        logits, _ = model(obs_pad, lengths)
+        B, T, A = logits.shape
+        loss = criterion(logits.reshape(B * T, A), act_pad.reshape(B * T))
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        total_loss += loss.item() * len(y_batch)
-        correct += (logits.argmax(1) == y_batch).sum().item()
-        total += len(y_batch)
+        mask = act_pad.reshape(B * T) != -100
+        preds = logits.reshape(B * T, A).argmax(1)
+        correct += (preds[mask] == act_pad.reshape(B * T)[mask]).sum().item()
+        total += mask.sum().item()
+        total_loss += loss.item() * mask.sum().item()
     return total_loss / total, correct / total
 
 
@@ -135,13 +227,18 @@ def train_epoch(model, loader, optimizer, criterion, device):
 def eval_epoch(model, loader, criterion, device):
     model.eval()
     total_loss, correct, total = 0.0, 0, 0
-    for X_batch, y_batch in loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        logits = model(X_batch)
-        loss = criterion(logits, y_batch)
-        total_loss += loss.item() * len(y_batch)
-        correct += (logits.argmax(1) == y_batch).sum().item()
-        total += len(y_batch)
+    for obs_pad, act_pad, lengths in loader:
+        obs_pad = obs_pad.to(device)
+        act_pad = act_pad.to(device)
+        lengths = lengths.to(device)
+        logits, _ = model(obs_pad, lengths)
+        B, T, A = logits.shape
+        loss = criterion(logits.reshape(B * T, A), act_pad.reshape(B * T))
+        mask = act_pad.reshape(B * T) != -100
+        preds = logits.reshape(B * T, A).argmax(1)
+        correct += (preds[mask] == act_pad.reshape(B * T)[mask]).sum().item()
+        total += mask.sum().item()
+        total_loss += loss.item() * mask.sum().item()
     return total_loss / total, correct / total
 
 
@@ -153,8 +250,6 @@ def train():
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
-    # --- Device ---
-    # CUDA (NVIDIA GPU) > MPS (Apple Silicon) > CPU
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
@@ -165,63 +260,60 @@ def train():
         device = torch.device("cpu")
         print("Using CPU (no GPU found)")
 
-    # --- Data ---
-    X, y = load_dataset(DATASET_PATH)
-    dataset = TensorDataset(X, y)
-    val_size = int(len(dataset) * VAL_SPLIT)
+    dataset = SequenceDataset(DATASET_PATH)
+    val_size = max(1, int(len(dataset) * VAL_SPLIT))
     train_size = len(dataset) - val_size
-    train_ds, val_ds = random_split(dataset, [train_size, val_size])
+    train_ds, val_ds = random_split(
+        dataset, [train_size, val_size],
+        generator=torch.Generator().manual_seed(SEED),
+    )
+    print(f"Train replays: {train_size} | Val replays: {val_size}")
 
-    train_loader = DataLoader(
-        train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0, pin_memory=True)
-    val_loader = DataLoader(val_ds,   batch_size=BATCH_SIZE,
-                            shuffle=False, num_workers=0, pin_memory=True)
-    print(f"Train: {train_size} samples | Val: {val_size} samples")
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                              collate_fn=collate_sequences, num_workers=0)
+    val_loader = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
+                            collate_fn=collate_sequences, num_workers=0)
 
-    # --- Model ---
-    model = ProtossModel().to(device)
+    model = ProtossLSTMModel().to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
 
-    # --- Loss with class weights ---
-    class_weights = compute_class_weights(y.numpy(), NUM_ACTIONS).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
-
-    # --- Optimizer + Scheduler ---
-    # AdamW is Adam with proper weight decay (decoupled from gradient updates).
-    # Weight decay acts as L2 regularization — discourages large weights.
+    class_weights = compute_class_weights(dataset, NUM_ACTIONS).to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=-100)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
-
-    # CosineAnnealingLR smoothly decays LR to near-zero over training.
-    # Better than step decay because it avoids abrupt LR drops that can destabilize training.
     scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
 
-    # --- Checkpointing ---
     Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
     best_val_acc = 0.0
     best_path = Path(CHECKPOINT_DIR) / "best_model.pt"
 
-    # --- Training loop ---
-    print(f"\n{'Epoch':>6} {'Train Loss':>11} {'Train Acc':>10} {'Val Loss':>10} {'Val Acc':>9} {'LR':>10}")
+    print(f"\n{'Epoch':>6} {'Train Loss':>11} {'Train Acc':>10} "
+          f"{'Val Loss':>10} {'Val Acc':>9} {'LR':>10}")
     print("-" * 65)
 
     for epoch in range(1, EPOCHS + 1):
         train_loss, train_acc = train_epoch(
             model, train_loader, optimizer, criterion, device)
-        val_loss,   val_acc = eval_epoch(model, val_loader, criterion, device)
+        val_loss,   val_acc = eval_epoch(
+            model, val_loader,   criterion, device)
         scheduler.step()
 
-        current_lr = scheduler.get_last_lr()[0]
-        print(f"{epoch:>6} {train_loss:>11.4f} {train_acc:>10.3%} {val_loss:>10.4f} {val_acc:>9.3%} {current_lr:>10.2e}")
+        lr = scheduler.get_last_lr()[0]
+        print(f"{epoch:>6} {train_loss:>11.4f} {train_acc:>10.3%} "
+              f"{val_loss:>10.4f} {val_acc:>9.3%} {lr:>10.2e}")
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save({
-                "epoch": epoch,
+                "epoch":       epoch,
                 "model_state": model.state_dict(),
-                "val_acc": val_acc,
-                "obs_size": OBS_SIZE,
+                "val_acc":     val_acc,
+                "obs_size":    OBS_SIZE,
                 "num_actions": NUM_ACTIONS,
+                "encoder_dim": ENCODER_DIM,
+                "lstm_hidden": LSTM_HIDDEN,
+                "lstm_layers": LSTM_LAYERS,
+                "head_hidden": HEAD_HIDDEN,
             }, best_path)
             print(f"         ↑ new best ({val_acc:.3%}) saved to {best_path}")
 
@@ -230,30 +322,49 @@ def train():
 
 
 # ---------------------------------------------------------------------------
-# Inference helper (for use in your bot)
+# Inference helpers
 # ---------------------------------------------------------------------------
 
-def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossModel:
-    """Load a saved checkpoint for inference inside the bot."""
+def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossLSTMModel:
     ckpt = torch.load(checkpoint_path, map_location=device)
-    model = ProtossModel(
+    model = ProtossLSTMModel(
         obs_size=ckpt["obs_size"],
         num_actions=ckpt["num_actions"],
+        encoder_dim=ckpt.get("encoder_dim", ENCODER_DIM),
+        lstm_hidden=ckpt.get("lstm_hidden", LSTM_HIDDEN),
+        lstm_layers=ckpt.get("lstm_layers", LSTM_LAYERS),
+        head_hidden=ckpt.get("head_hidden", HEAD_HIDDEN),
     )
     model.load_state_dict(ckpt["model_state"])
     model.eval()
-    return model
+    return model.to(device)
 
 
-def predict_action(model: ProtossModel, obs: list[float], device: str = "cpu") -> int:
+def predict_action(
+    model:  ProtossLSTMModel,
+    obs:    list[float],
+    hc:     tuple | None = None,
+    device: str = "cpu",
+) -> tuple[int, tuple]:
     """
-    Given a raw observation vector (from ObservationWrapper.get_observation),
-    return the predicted action id.
+    Single-step inference. Returns (action_id, new_hc).
+
+    No action masking — illegal actions fail silently in execute_action
+    and the bot waits until they become valid. This lets the model learn
+    timing implicitly from the game state rather than being hard-blocked.
+
+    The caller (ProtossBot) stores and passes hc between calls so the
+    LSTM remembers what happened earlier in the game.
     """
-    x = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
+    x = torch.tensor(obs, dtype=torch.float32).unsqueeze(
+        0).unsqueeze(0).to(device)
+    lengths = torch.tensor([1], dtype=torch.long)
+
     with torch.no_grad():
-        logits = model(x)
-    return int(logits.argmax(1).item())
+        logits, hc_out = model(x, lengths, hc=hc)
+
+    action_id = int(logits[0, 0].argmax().item())
+    return action_id, hc_out
 
 
 if __name__ == "__main__":
