@@ -5,13 +5,14 @@ Architecture:
     obs (53,) -> Linear encoder (53->64) -> LSTM (64->128, 1 layer)
               -> MLP head (128->64->30 logits)
 
-Changes from previous version:
-  - OBS_SIZE updated from 30 to 53 (adds 15 pending structure counts
-    and 8 pending unit counts from observation_wrapper.py)
-  - Action mask removed from predict_action. Illegal actions now fail
-    silently in execute_action and the bot just waits — this lets the
-    model learn timing implicitly (e.g. keep trying build_nexus until
-    minerals are available) rather than being hard-blocked.
+Key changes in this version:
+  - Legal-action masking applied consistently in BOTH the training loop
+    and predict_action, via the shared action_mask module.
+    The model now learns P(action | obs, action is legal), so the
+    conditional probabilities are calibrated for exactly the distribution
+    seen at runtime — not the full 30-action space.
+  - Temperature sampling replaces argmax in predict_action to avoid
+    probability-mass collapse onto a single action.
 """
 
 import numpy as np
@@ -22,15 +23,16 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from pathlib import Path
 
+from action_mask import apply_legal_mask
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints"
 
-OBS_SIZE = 53   # 6 base + 15 structures + 8 units + 15 pending structures + 8 pending units + 1 opp
-# must match actions.py (action 0 = do_nothing, never trained but kept for index stability)
-NUM_ACTIONS = 30
+OBS_SIZE = 53   # 6 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 1 opp
+NUM_ACTIONS = 30   # action 0 = do_nothing, kept for index stability
 
 # Model hyper-params
 ENCODER_DIM = 64
@@ -45,6 +47,10 @@ EPOCHS = 80
 LR = 3e-4
 VAL_SPLIT = 0.15
 SEED = 54
+
+# Inference temperature: < 1.0 sharpens, > 1.0 softens.
+# 0.8 keeps diversity without going fully random.
+INFERENCE_TEMPERATURE = 0.8
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +122,9 @@ class ProtossLSTMModel(nn.Module):
 
     def forward(
         self,
-        x:       torch.Tensor,        # (batch, seq_len, obs_size) padded
-        lengths: torch.Tensor,        # (batch,) true lengths
-        hc:      tuple | None = None,  # optional (h_0, c_0) for inference
+        x:       torch.Tensor,
+        lengths: torch.Tensor,
+        hc:      tuple | None = None,
     ) -> tuple[torch.Tensor, tuple]:
         """
         Returns:
@@ -137,8 +143,8 @@ class ProtossLSTMModel(nn.Module):
         return logits, hc_out
 
     def init_hidden(self, batch_size: int = 1, device: str = "cpu"):
-        zeros = torch.zeros(self.lstm_layers, batch_size,
-                            self.lstm_hidden, device=device)
+        zeros = torch.zeros(
+            self.lstm_layers, batch_size, self.lstm_hidden, device=device)
         return (zeros, zeros.clone())
 
 
@@ -149,8 +155,6 @@ class ProtossLSTMModel(nn.Module):
 class SequenceDataset(Dataset):
     """
     Each item is one replay: (obs_tensor (T, OBS_SIZE), act_tensor (T,)).
-    Loaded from a .npz whose 'sequences' field is an object array of
-    (T_i, OBS_SIZE+1) float32 arrays (obs columns + action column).
     """
 
     def __init__(self, path: str):
@@ -160,12 +164,13 @@ class SequenceDataset(Dataset):
         for seq in raw:
             seq = seq.astype(np.float32)
             obs = torch.tensor(seq[:, :OBS_SIZE], dtype=torch.float32)
-            act = torch.tensor(seq[:, OBS_SIZE].astype(
-                np.int64), dtype=torch.long)
+            act = torch.tensor(
+                seq[:, OBS_SIZE].astype(np.int64), dtype=torch.long)
             self.sequences.append((obs, act))
         lengths = [len(s[0]) for s in self.sequences]
         print(f"Loaded {len(self.sequences)} sequences | "
-              f"lengths: min={min(lengths)}, max={max(lengths)}, mean={np.mean(lengths):.0f}")
+              f"lengths: min={min(lengths)}, max={max(lengths)}, "
+              f"mean={np.mean(lengths):.0f}")
 
     def __len__(self):
         return len(self.sequences)
@@ -176,8 +181,10 @@ class SequenceDataset(Dataset):
 
 def collate_sequences(batch):
     """
-    Pad variable-length sequences for batched training.
-    Padding value -100 is ignored by CrossEntropyLoss(ignore_index=-100).
+    Pad variable-length sequences. Padding value -100 is ignored by
+    CrossEntropyLoss(ignore_index=-100).  Obs padding is 0.0 — padded
+    positions have all structure/unit counts at zero, but action 0
+    (do_nothing) is always legal so softmax never sees all-(-inf) input.
     """
     obs_list, act_list = zip(*batch)
     lengths = torch.tensor([len(o) for o in obs_list], dtype=torch.long)
@@ -190,13 +197,15 @@ def collate_sequences(batch):
 # Training helpers
 # ---------------------------------------------------------------------------
 
-def compute_class_weights(dataset: SequenceDataset, num_classes: int) -> torch.Tensor:
+def compute_class_weights(
+    dataset: SequenceDataset, num_classes: int
+) -> torch.Tensor:
     counts = np.zeros(num_classes, dtype=np.float32)
     for _, act_seq in dataset.sequences:
         for a in act_seq.numpy():
             counts[int(a)] += 1
     counts = np.where(counts == 0, 1.0, counts)
-    weights = 1.0 / counts
+    weights = 1.0 / np.sqrt(counts)   # sqrt dampens extremes vs plain 1/n
     weights /= weights.sum()
     return torch.tensor(weights, dtype=torch.float32)
 
@@ -204,22 +213,36 @@ def compute_class_weights(dataset: SequenceDataset, num_classes: int) -> torch.T
 def train_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss, correct, total = 0.0, 0, 0
+
     for obs_pad, act_pad, lengths in loader:
         obs_pad = obs_pad.to(device)
         act_pad = act_pad.to(device)
         lengths = lengths.to(device)
+
         optimizer.zero_grad()
         logits, _ = model(obs_pad, lengths)
+
         B, T, A = logits.shape
-        loss = criterion(logits.reshape(B * T, A), act_pad.reshape(B * T))
+        flat_logits = logits.reshape(B * T, A)
+        flat_obs = obs_pad.reshape(B * T, obs_pad.shape[-1])
+
+        # Apply the same legal mask used at inference time.
+        # Illegal-action logits become -inf → zero probability after softmax.
+        # Padded positions (obs=0) still have do_nothing legal so no NaN risk.
+        flat_logits = apply_legal_mask(flat_logits, flat_obs)
+
+        flat_acts = act_pad.reshape(B * T)
+        loss = criterion(flat_logits, flat_acts)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        mask = act_pad.reshape(B * T) != -100
-        preds = logits.reshape(B * T, A).argmax(1)
-        correct += (preds[mask] == act_pad.reshape(B * T)[mask]).sum().item()
+
+        mask = flat_acts != -100
+        preds = flat_logits.argmax(1)
+        correct += (preds[mask] == flat_acts[mask]).sum().item()
         total += mask.sum().item()
         total_loss += loss.item() * mask.sum().item()
+
     return total_loss / total, correct / total
 
 
@@ -227,18 +250,28 @@ def train_epoch(model, loader, optimizer, criterion, device):
 def eval_epoch(model, loader, criterion, device):
     model.eval()
     total_loss, correct, total = 0.0, 0, 0
+
     for obs_pad, act_pad, lengths in loader:
         obs_pad = obs_pad.to(device)
         act_pad = act_pad.to(device)
         lengths = lengths.to(device)
+
         logits, _ = model(obs_pad, lengths)
+
         B, T, A = logits.shape
-        loss = criterion(logits.reshape(B * T, A), act_pad.reshape(B * T))
-        mask = act_pad.reshape(B * T) != -100
-        preds = logits.reshape(B * T, A).argmax(1)
-        correct += (preds[mask] == act_pad.reshape(B * T)[mask]).sum().item()
+        flat_logits = logits.reshape(B * T, A)
+        flat_obs = obs_pad.reshape(B * T, obs_pad.shape[-1])
+        flat_logits = apply_legal_mask(flat_logits, flat_obs)
+
+        flat_acts = act_pad.reshape(B * T)
+        loss = criterion(flat_logits, flat_acts)
+
+        mask = flat_acts != -100
+        preds = flat_logits.argmax(1)
+        correct += (preds[mask] == flat_acts[mask]).sum().item()
         total += mask.sum().item()
         total_loss += loss.item() * mask.sum().item()
+
     return total_loss / total, correct / total
 
 
@@ -269,18 +302,22 @@ def train():
     )
     print(f"Train replays: {train_size} | Val replays: {val_size}")
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                              collate_fn=collate_sequences, num_workers=0)
-    val_loader = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
-                            collate_fn=collate_sequences, num_workers=0)
+    train_loader = DataLoader(
+        train_ds, batch_size=BATCH_SIZE, shuffle=True,
+        collate_fn=collate_sequences, num_workers=0)
+    val_loader = DataLoader(
+        val_ds, batch_size=BATCH_SIZE, shuffle=False,
+        collate_fn=collate_sequences, num_workers=0)
 
     model = ProtossLSTMModel().to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
 
     class_weights = compute_class_weights(dataset, NUM_ACTIONS).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=-100)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss(
+        weight=class_weights, ignore_index=-100)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
 
     Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
@@ -294,8 +331,8 @@ def train():
     for epoch in range(1, EPOCHS + 1):
         train_loss, train_acc = train_epoch(
             model, train_loader, optimizer, criterion, device)
-        val_loss,   val_acc = eval_epoch(
-            model, val_loader,   criterion, device)
+        val_loss, val_acc = eval_epoch(
+            model, val_loader, criterion, device)
         scheduler.step()
 
         lr = scheduler.get_last_lr()[0]
@@ -341,29 +378,45 @@ def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossLSTMModel:
 
 
 def predict_action(
-    model:  ProtossLSTMModel,
-    obs:    list[float],
-    hc:     tuple | None = None,
-    device: str = "cpu",
+    model:       ProtossLSTMModel,
+    obs:         list[float],
+    hc:          tuple | None = None,
+    device:      str = "cpu",
+    temperature: float = INFERENCE_TEMPERATURE,
 ) -> tuple[int, tuple]:
     """
-    Single-step inference. Returns (action_id, new_hc).
+    Single-step inference with legal masking + temperature sampling.
 
-    No action masking — illegal actions fail silently in execute_action
-    and the bot waits until they become valid. This lets the model learn
-    timing implicitly from the game state rather than being hard-blocked.
+    The mask ensures only prerequisite-satisfied actions are candidates,
+    matching the distribution the model was trained on.  Temperature
+    sampling (default 0.8) avoids argmax probability collapse while
+    staying close to the model's top preference.
 
-    The caller (ProtossBot) stores and passes hc between calls so the
-    LSTM remembers what happened earlier in the game.
+    Args:
+        model:       trained ProtossLSTMModel
+        obs:         flat observation vector (length OBS_SIZE)
+        hc:          LSTM hidden/cell state from previous step (None = zeros)
+        device:      torch device string
+        temperature: softmax temperature. Lower = sharper, higher = more random.
+
+    Returns:
+        (action_id, new_hc)
     """
     x = torch.tensor(obs, dtype=torch.float32).unsqueeze(
         0).unsqueeze(0).to(device)
+    obs_2d = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
     lengths = torch.tensor([1], dtype=torch.long)
 
     with torch.no_grad():
         logits, hc_out = model(x, lengths, hc=hc)
 
-    action_id = int(logits[0, 0].argmax().item())
+    # Apply legal mask — same logic as the training loop
+    masked_logits = apply_legal_mask(logits[0, 0].unsqueeze(0), obs_2d)
+
+    # Temperature sampling over the legal actions
+    probs = torch.softmax(masked_logits[0] / temperature, dim=-1)
+    action_id = int(torch.multinomial(probs, 1).item())
+
     return action_id, hc_out
 
 
