@@ -116,6 +116,7 @@ _IDX_FORGE = 10
 _IDX_TWILIGHTCOUNCIL = 11
 _IDX_PHOTONCANNON = 12
 _IDX_TEMPLARARCHIVE = 14
+_IDX_ROBOTICSBAY = 15
 _IDX_ROBOTICSFACILITY = 16
 _IDX_CYBERNETICSCORE = 18
 _IDX_STARGATE = 19
@@ -143,6 +144,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     has_cybcore = obs[_IDX_CYBERNETICSCORE] > _EPS
     has_stargate = obs[_IDX_STARGATE] > _EPS
     has_fleet = obs[_IDX_FLEETBEACON] > _EPS
+    has_robobay = obs[_IDX_ROBOTICSBAY] > _EPS
     has_2ht = obs[_IDX_HIGHTEMPLAR] > (1.5 / 30.0)
 
     pending_probes = obs[44] * 30.0
@@ -187,6 +189,10 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
         27: has_cybcore,
         28: has_forge,
         29: has_army,
+        30: has_idle_gw_wg and has_cybcore,  # train_adept
+        31: has_idle_sg,                      # train_phoenix
+        32: has_idle_robo and has_robobay,   # train_colossus
+        33: has_idle_wg and has_cybcore,     # warp_in_adept
     }
     return rules.get(action_id, False)
 
@@ -372,9 +378,14 @@ class ReplayParser:
             "WarpInStalker":         21,
             "WarpInHighTemplar":     22,
             "ArchonWarp":            23,
+            "ArchonWarpSelection":   23,
             "MorphToArchon":         23,
             "ResearchCharge":        24,
             "ResearchWarpGate":      25,
+            "TrainAdept":            30,
+            "TrainPhoenix":          31,
+            "TrainColossus":         32,
+            "WarpInAdept":           33,
         }
 
     # ------------------------------------------------------------------

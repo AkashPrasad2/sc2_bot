@@ -32,7 +32,7 @@ DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints"
 
 OBS_SIZE = 57   # 6 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 1 opp + 4 idle
-NUM_ACTIONS = 30   # action 0 = do_nothing, kept for index stability
+NUM_ACTIONS = 34   # action 0 = do_nothing, kept for index stability
 
 # Model hyper-params
 ENCODER_DIM = 64

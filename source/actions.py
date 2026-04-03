@@ -29,22 +29,29 @@ ACTIONS = [
     "warp_in_zealot",           # 20
     "warp_in_stalker",          # 21
     "warp_in_high_templar",     # 22
-    "archon_warp_selecton",     # 23
+    "archon_warp_selection",    # 23
     "research_charge",          # 24
     "research_warp_gate",       # 25
     "upgrade_ground_weapons",   # 26
     "upgrade_air_weapons",      # 27
     "upgrade_shields",          # 28
     "attack_enemy_base",        # 29
+    "train_adept",              # 30
+    "train_phoenix",            # 31
+    "train_colossus",           # 32
+    "warp_in_adept",            # 33
 ]
 
 ARMY = [
     UnitTypeId.ZEALOT,
     UnitTypeId.STALKER,
+    UnitTypeId.ADEPT,
     UnitTypeId.HIGHTEMPLAR,
     UnitTypeId.ARCHON,
     UnitTypeId.IMMORTAL,
+    UnitTypeId.COLOSSUS,
     UnitTypeId.VOIDRAY,
+    UnitTypeId.PHOENIX,
     UnitTypeId.CARRIER,
 ]
 
@@ -157,7 +164,7 @@ async def execute_action(action_id: int, bot: BotAI):
                 bot.structures(UnitTypeId.WARPGATE).ready.first.warp_in(
                     UnitTypeId.HIGHTEMPLAR, pylon.position)
 
-    elif action_name == "archon_warp_selecton":
+    elif action_name == "archon_warp_selection":
         # Merge 2 High Templars into an Archon
         if bot.units(UnitTypeId.HIGHTEMPLAR).idle.amount >= 2:
             # Get 2 idle High Templars
@@ -219,3 +226,30 @@ async def execute_action(action_id: int, bot: BotAI):
     elif action_name == "attack_enemy_base":
         for unit in bot.units.of_type([UnitTypeId.ZEALOT, UnitTypeId.STALKER]).idle:
             unit.attack(bot.enemy_start_locations[0])
+
+    elif action_name == "train_adept":
+        if bot.can_afford(UnitTypeId.ADEPT) and bot.structures(UnitTypeId.CYBERNETICSCORE).ready:
+            if bot.structures(UnitTypeId.GATEWAY).ready.idle:
+                bot.structures(UnitTypeId.GATEWAY).ready.idle.first.train(
+                    UnitTypeId.ADEPT)
+
+    elif action_name == "train_phoenix":
+        if bot.can_afford(UnitTypeId.PHOENIX) and bot.structures(UnitTypeId.STARGATE).ready.idle:
+            bot.structures(UnitTypeId.STARGATE).ready.idle.first.train(
+                UnitTypeId.PHOENIX)
+
+    elif action_name == "train_colossus":
+        if bot.can_afford(UnitTypeId.COLOSSUS) and bot.structures(UnitTypeId.ROBOTICSBAY).ready:
+            if bot.structures(UnitTypeId.ROBOTICSFACILITY).ready.idle:
+                bot.structures(UnitTypeId.ROBOTICSFACILITY).ready.idle.first.train(
+                    UnitTypeId.COLOSSUS)
+
+    elif action_name == "warp_in_adept":
+        if bot.can_afford(UnitTypeId.ADEPT) and bot.structures(UnitTypeId.WARPGATE).ready and bot.structures(UnitTypeId.CYBERNETICSCORE).ready:
+            abilities = await bot.get_available_abilities(
+                bot.structures(UnitTypeId.WARPGATE).ready.first)
+            if AbilityId.TRAINWARP_ADEPT in abilities:
+                pylon = bot.structures(UnitTypeId.PYLON).closest_to(
+                    bot.structures(UnitTypeId.WARPGATE).ready.first)
+                bot.structures(UnitTypeId.WARPGATE).ready.first.warp_in(
+                    UnitTypeId.ADEPT, pylon.position)

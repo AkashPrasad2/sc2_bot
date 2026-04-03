@@ -28,7 +28,7 @@ Observation layout (57 features, matching observation_wrapper.py):
 
 import torch
 
-NUM_ACTIONS = 30
+NUM_ACTIONS = 34
 
 # ---------------------------------------------------------------------------
 # Obs feature indices — completed structure counts
@@ -235,6 +235,19 @@ def build_legal_mask(obs: torch.Tensor) -> torch.Tensor:
 
     # Action 29: attack_enemy_base — needs at least one combat unit
     mask[:, 29] = has_army
+
+    # Action 30: train_adept — needs idle Gateway + Cybernetics Core
+    mask[:, 30] = has_idle_gw_wg & has_cybcore
+
+    # Action 31: train_phoenix — needs idle Stargate
+    mask[:, 31] = has_idle_sg
+
+    # Action 32: train_colossus — needs idle Robotics Facility + Robotics Bay
+    has_robobay = obs[:, IDX_ROBOTICSBAY] > EPS
+    mask[:, 32] = has_idle_robo & has_robobay
+
+    # Action 33: warp_in_adept — needs idle Warpgate + Cybernetics Core
+    mask[:, 33] = has_idle_wg & has_cybcore
 
     return mask
 
