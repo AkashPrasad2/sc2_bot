@@ -174,12 +174,16 @@ async def warp_in_unit(bot: BotAI, unit_type: UnitTypeId, ability_id: AbilityId)
 
 
 async def rally_idle_army(bot: BotAI):
-    """Move idle army units to nexus center every 10 seconds"""
-    # Only run every 10 seconds
+    """Move all army units to nexus center every 30 seconds (disabled once auto-attack starts)"""
+    # Don't rally if auto-attack has been initiated
+    if hasattr(bot, '_auto_attack_initiated') and bot._auto_attack_initiated:
+        return
+
+    # Only run every 30 seconds
     if not hasattr(bot, '_last_rally_time'):
         bot._last_rally_time = 0
 
-    if bot.time - bot._last_rally_time < 10:
+    if bot.time - bot._last_rally_time < 30:
         return
 
     bot._last_rally_time = bot.time
@@ -203,9 +207,11 @@ async def rally_idle_army(bot: BotAI):
         UnitTypeId.CARRIER,
     ]
 
-    for unit_type in army_types:
-        for unit in bot.units(unit_type).idle:
-            unit.move(nexus_center)
+    # Get all army units at once
+    army = bot.units.of_type(army_types)
+    if army:
+        for unit in army:
+            unit.attack(nexus_center)
 
 
 async def auto_attack(bot: BotAI):
@@ -246,33 +252,60 @@ async def auto_attack(bot: BotAI):
     if not army:
         return
 
-    # Find next target: enemy bases in order
+    # Initialize cleared bases tracking
+    if not hasattr(bot, '_cleared_bases'):
+        bot._cleared_bases = set()
+
+    # Find next target: check all base locations systematically
     target = None
 
-    # Check enemy start locations first
+    # First check enemy start locations
     for enemy_start in bot.enemy_start_locations:
-        # If there's an enemy base there, attack it
+        if enemy_start in bot._cleared_bases:
+            continue
+        
+        # Check if there are enemy structures nearby
         enemy_structures = bot.enemy_structures.closer_than(20, enemy_start)
         if enemy_structures:
             target = enemy_start
             break
+        else:
+            # No structures found, mark as cleared
+            bot._cleared_bases.add(enemy_start)
 
-    # If no enemy base at start location, check all expansion locations
+    # If no target at enemy start, check all expansion locations
     if not target:
         for expansion in bot.expansion_locations_list:
+            if expansion in bot._cleared_bases:
+                continue
+            
+            # Check if there are enemy structures nearby
             enemy_structures = bot.enemy_structures.closer_than(20, expansion)
             if enemy_structures:
                 target = expansion
                 break
+            else:
+                # No structures found, mark as cleared
+                bot._cleared_bases.add(expansion)
 
-    # If still no target, just attack enemy start location
-    if not target and bot.enemy_start_locations:
-        target = bot.enemy_start_locations[0]
+    # If still no target found, attack the first uncleared location
+    if not target:
+        # Check enemy start locations again (even if cleared)
+        for enemy_start in bot.enemy_start_locations:
+            if enemy_start not in bot._cleared_bases:
+                target = enemy_start
+                break
+        
+        # If all enemy starts cleared, check expansions
+        if not target:
+            for expansion in bot.expansion_locations_list:
+                if expansion not in bot._cleared_bases:
+                    target = expansion
+                    break
 
     # Send all army units to attack
     if target:
-        for unit in army:
-            unit.attack(target)
+        army.attack(target)
 
 
 async def defend_structures(bot: BotAI):
