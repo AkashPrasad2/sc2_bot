@@ -70,6 +70,6 @@ class ProtossBot(BotAI):
 
 run_game(
     maps.get("AbyssalReefLE"),
-    [Bot(Race.Protoss, ProtossBot()), Computer(Race.Zerg, Difficulty.VeryEasy)],
+    [Bot(Race.Protoss, ProtossBot()), Computer(Race.Zerg, Difficulty.Easy)],
     realtime=False,
 )
