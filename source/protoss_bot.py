@@ -22,12 +22,6 @@ class ProtossBot(BotAI):
         self.model = load_model(CHECKPOINT_PATH, device=DEVICE)
         self.action_cooldown = 0
 
-        # LSTM hidden state carried across steps.
-        # None on the first call — model initialises to zeros automatically.
-        # After each inference we store the returned (h, c) so the next call
-        # picks up exactly where the previous one left off.
-        self.lstm_hc = None
-
     async def on_step(self, iteration: int):
         # --- Always-on behaviours ---
         await self.distribute_workers()
@@ -48,10 +42,9 @@ class ProtossBot(BotAI):
 
         obs = self.obs_wrapper.get_observation(self, OpponentInfo(0))
 
-        action_id, self.lstm_hc = predict_action(
+        action_id = predict_action(
             self.model,
             obs,
-            hc=self.lstm_hc,
             device=DEVICE,
         )
 
@@ -64,8 +57,7 @@ class ProtossBot(BotAI):
         self.action_cooldown = 22
 
     async def on_end(self, game_result):
-        # Reset LSTM state between games if running multiple in sequence
-        self.lstm_hc = None
+        pass
 
 
 run_game(
