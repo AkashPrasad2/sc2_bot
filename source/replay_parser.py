@@ -533,6 +533,12 @@ class ReplayParser:
         }
 
     def parse_replay(self, replay, min_length: int = 10) -> np.ndarray | None:
+        # Skip replays that are incompatible with the sc2reader
+        if getattr(replay, 'build', 0) < 73286:
+            if self.debug:
+                print(f"    [SKIP] Replay build {getattr(replay, 'build', 'unknown')} is older than 4.0.0 (73286).")
+            return None
+
         protoss_player = None
         zerg_player = None
         for player in replay.players:
@@ -638,8 +644,10 @@ class ReplayParser:
             if action_id != 0 and not _action_legal_numpy(obs, action_id):
                 self.conflicts_dropped += 1
                 if self.debug:
-                    print(f"    [CONFLICT] window={window} t={window*G:.0f}s "
-                          f"action={action_id} illegal at snapshot — demoted to do_nothing")
+                    print(f"    [CONFLICT DETAIL] window={window} action={action_id} "
+                          f"obs[nexus]={obs[6]:.4f} obs[pylon]={obs[7]:.4f} "
+                          f"obs[gateway]={obs[8]:.4f} obs[cybcore]={obs[18]:.4f} "
+                          f"obs[pending_gateway]={obs[31]:.4f}")
                 action_id = 0
 
             rows.append(obs + [float(action_id)])
@@ -705,7 +713,11 @@ class ReplayParser:
                 seq = self.parse_replay(replay)
                 if seq is None:
                     skipped += 1
-                    print(f"  {fname}: too short, skipped")
+                    build = getattr(replay, 'build', 0)
+                    if build > 0 and build < 73286:
+                        print(f"  {fname}: skipped (old patch {build})")
+                    else:
+                        print(f"  {fname}: too short, skipped")
                     continue
 
                 actions = seq[:, OBS_SIZE].astype(int)

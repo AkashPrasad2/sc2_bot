@@ -16,10 +16,10 @@ import os
 
 # Add parent directory to path to import replay_parser
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from replay_parser import ReplayParser, GRID_INTERVAL_SECONDS
+from replay_parser import ReplayParser, GRID_INTERVAL_SECONDS, OBS_SIZE
 
 # Load the same replay
-replay_path = r"C:\dev\BetaStar\replays\raw\Abyssal Reef LE (54).SC2Replay"
+replay_path = r"C:\dev\BetaStar\replays\raw\Railgan v ShaDoWn - Abyssal Reef LE.SC2Replay"
 print(f"Loading replay: {replay_path}")
 print("=" * 120)
 replay = sc2reader.load_replay(replay_path, load_level=4)
@@ -155,7 +155,7 @@ print(f"\n{'='*120}")
 print("STEP 3: FINAL TRAINING DATA ANALYSIS")
 print("=" * 120)
 
-actions = seq[:, 57].astype(int)  # OBS_SIZE = 57, action is the last column
+actions = seq[:, OBS_SIZE].astype(int)  # action is the last column
 print(f"\nTotal windows in parsed sequence: {len(actions)}")
 print(f"Grid interval: {GRID_INTERVAL_SECONDS}s per window")
 print(f"Game duration covered: {len(actions) * GRID_INTERVAL_SECONDS}s ({len(actions) * GRID_INTERVAL_SECONDS / 60:.1f} minutes)\n")
