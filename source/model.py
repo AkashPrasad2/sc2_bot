@@ -3,6 +3,7 @@ SC2 Protoss Imitation Learning — MLP Model + Training Script
 =============================================================
 Architecture:
     obs (59,) -> MLP head (59->128->64->35 logits)
+    obs (59,) -> MLP head (59->128->64->35 logits)
 
 Legal-action masking applied consistently in BOTH the training loop
 and predict_action, via the shared action_mask module.
@@ -22,6 +23,7 @@ from action_mask import apply_legal_mask, apply_training_mask
 # Config
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
+CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 
 OBS_SIZE = 59   # 6 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
@@ -52,8 +54,7 @@ INFERENCE_TEMPERATURE = 0.8
 
 class ProtossMLPModel(nn.Module):
     """
-    Pure MLP: encodes each game-state observation independently and decodes
-    it into action logits
+    Pure MLP: Takes current game state and decides on next action to take.
     """
 
     def __init__(
@@ -66,6 +67,7 @@ class ProtossMLPModel(nn.Module):
         super().__init__()
 
         self.head = nn.Sequential(
+            nn.Linear(obs_size, head_hidden),
             nn.Linear(obs_size, head_hidden),
             nn.LayerNorm(head_hidden),
             nn.GELU(),
@@ -94,6 +96,7 @@ class ProtossMLPModel(nn.Module):
         """
         shape = x.shape
         flat = x.reshape(-1, shape[-1])
+        logits = self.head(flat)
         logits = self.head(flat)
         return logits.reshape(*shape[:-1], -1)
 
