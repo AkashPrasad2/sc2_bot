@@ -79,7 +79,7 @@ async def build_structure(bot: BotAI, building: UnitTypeId):
             placement = await bot.find_placement(
                 building,
                 near=bot.townhalls.first.position,
-                placement_step=2)
+                placement_step=1)
             if placement:
                 worker = bot.select_build_worker(placement)
                 if worker:

@@ -26,7 +26,7 @@ DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 
-OBS_SIZE = 59   # 6 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
+OBS_SIZE = 65   # 1 time + 4 min + 4 gas + 3 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
 NUM_ACTIONS = 35   # action 0 = do_nothing, kept for index stability
 
 # Model hyper-params
@@ -35,7 +35,7 @@ DROPOUT = 0.3
 
 # Training hyper-params
 BATCH_SIZE = 32
-EPOCHS = 60
+EPOCHS = 100
 LR = 3e-4
 VAL_SPLIT = 0.15
 SEED = 54
@@ -107,7 +107,7 @@ class ProtossMLPModel(nn.Module):
 
 class SequenceDataset(Dataset):
     """
-    Each item is one replay: (obs_tensor (T, OBS_SIZE), act_tensor (T,)).
+    Each object represents one replay: (obs_tensor (T, OBS_SIZE), action_tensor (T,)).
     """
 
     def __init__(self, path: str):

@@ -15,7 +15,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
-OBS_SIZE = 57
+OBS_SIZE = 65
 
 # Action ID to name mapping
 ACTION_NAMES = {

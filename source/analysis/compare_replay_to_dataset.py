@@ -20,6 +20,7 @@ from replay_parser import ReplayParser, GRID_INTERVAL_SECONDS, OBS_SIZE
 
 # Load the same replay
 replay_path = r"C:\dev\BetaStar\replays\raw\Railgan v ShaDoWn - Abyssal Reef LE.SC2Replay"
+#C:\dev\BetaStar\replays\raw\Classic v Rogue_ Game 2 - Tokamak LE.SC2Replay
 print(f"Loading replay: {replay_path}")
 print("=" * 120)
 replay = sc2reader.load_replay(replay_path, load_level=4)

@@ -25,75 +25,75 @@ import torch
 NUM_ACTIONS = 35  # 0-33 active; index 34 is a stale dataset entry, always masked illegal
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — completed structure counts (indices 6-20)
+# Obs feature indices — completed structure counts (indices 12-26)
 # ---------------------------------------------------------------------------
-IDX_NEXUS = 6
-IDX_PYLON = 7
-IDX_GATEWAY = 8
-IDX_WARPGATE = 9
-IDX_FORGE = 10
-IDX_TWILIGHTCOUNCIL = 11
-IDX_PHOTONCANNON = 12
-IDX_SHIELDBATTERY = 13
-IDX_TEMPLARARCHIVE = 14
-IDX_ROBOTICSBAY = 15
-IDX_ROBOTICSFACILITY = 16
-IDX_ASSIMILATOR = 17
-IDX_CYBERNETICSCORE = 18
-IDX_STARGATE = 19
-IDX_FLEETBEACON = 20
+IDX_NEXUS = 12
+IDX_PYLON = 13
+IDX_GATEWAY = 14
+IDX_WARPGATE = 15
+IDX_FORGE = 16
+IDX_TWILIGHTCOUNCIL = 17
+IDX_PHOTONCANNON = 18
+IDX_SHIELDBATTERY = 19
+IDX_TEMPLARARCHIVE = 20
+IDX_ROBOTICSBAY = 21
+IDX_ROBOTICSFACILITY = 22
+IDX_ASSIMILATOR = 23
+IDX_CYBERNETICSCORE = 24
+IDX_STARGATE = 25
+IDX_FLEETBEACON = 26
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — completed unit counts (indices 21-28)
+# Obs feature indices — completed unit counts (indices 27-34)
 # ---------------------------------------------------------------------------
-IDX_PROBE = 21
-IDX_ZEALOT = 22
-IDX_STALKER = 23
-IDX_HIGHTEMPLAR = 24
-IDX_ARCHON = 25
-IDX_IMMORTAL = 26
-IDX_CARRIER = 27
-IDX_VOIDRAY = 28
+IDX_PROBE = 27
+IDX_ZEALOT = 28
+IDX_STALKER = 29
+IDX_HIGHTEMPLAR = 30
+IDX_ARCHON = 31
+IDX_IMMORTAL = 32
+IDX_CARRIER = 33
+IDX_VOIDRAY = 34
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — pending unit counts (indices 44-51)
+# Obs feature indices — pending unit counts (indices 50-57)
 # ---------------------------------------------------------------------------
-IDX_PENDING_PROBE = 44
+IDX_PENDING_PROBE = 50
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — pending structure counts (indices 29-43)
-# Same order as completed structures (6-20); offset = +23.
+# Obs feature indices — pending structure counts (indices 35-49)
+# Same order as completed structures (12-26); offset = +23.
 # ---------------------------------------------------------------------------
-IDX_PEND_NEXUS            = 29
-IDX_PEND_PYLON            = 30
-IDX_PEND_GATEWAY          = 31
-IDX_PEND_WARPGATE         = 32
-IDX_PEND_FORGE            = 33
-IDX_PEND_TWILIGHTCOUNCIL  = 34
-IDX_PEND_PHOTONCANNON     = 35
-IDX_PEND_SHIELDBATTERY    = 36
-IDX_PEND_TEMPLARARCHIVE   = 37
-IDX_PEND_ROBOTICSBAY      = 38
-IDX_PEND_ROBOTICSFACILITY = 39
-IDX_PEND_ASSIMILATOR      = 40
-IDX_PEND_CYBERNETICSCORE  = 41
-IDX_PEND_STARGATE         = 42
-IDX_PEND_FLEETBEACON      = 43
+IDX_PEND_NEXUS            = 35
+IDX_PEND_PYLON            = 36
+IDX_PEND_GATEWAY          = 37
+IDX_PEND_WARPGATE         = 38
+IDX_PEND_FORGE            = 39
+IDX_PEND_TWILIGHTCOUNCIL  = 40
+IDX_PEND_PHOTONCANNON     = 41
+IDX_PEND_SHIELDBATTERY    = 42
+IDX_PEND_TEMPLARARCHIVE   = 43
+IDX_PEND_ROBOTICSBAY      = 44
+IDX_PEND_ROBOTICSFACILITY = 45
+IDX_PEND_ASSIMILATOR      = 46
+IDX_PEND_CYBERNETICSCORE  = 47
+IDX_PEND_STARGATE         = 48
+IDX_PEND_FLEETBEACON      = 49
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — idle production building counts (indices 52-55)
+# Obs feature indices — idle production building counts (indices 58-61)
 # ---------------------------------------------------------------------------
-IDX_IDLE_GW_WG = 52
-IDX_IDLE_SG = 53
-IDX_IDLE_ROBO = 54
-IDX_IDLE_WG = 55
+IDX_IDLE_GW_WG = 58
+IDX_IDLE_SG = 59
+IDX_IDLE_ROBO = 60
+IDX_IDLE_WG = 61
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — upgrade levels (indices 56-58)
+# Obs feature indices — upgrade levels (indices 62-64)
 # ---------------------------------------------------------------------------
-IDX_GROUND_WEAPONS_LVL = 56
-IDX_SHIELDS_LVL = 57
-IDX_AIR_WEAPONS_LVL = 58
+IDX_GROUND_WEAPONS_LVL = 62
+IDX_SHIELDS_LVL = 63
+IDX_AIR_WEAPONS_LVL = 64
 
 EPS = 0.01
 

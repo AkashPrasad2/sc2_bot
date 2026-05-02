@@ -72,7 +72,7 @@ UNITS = [
     "PROBE", "ZEALOT", "STALKER", "HIGHTEMPLAR", "ARCHON", "IMMORTAL", "CARRIER", "VOIDRAY",
 ]
 
-OBS_SIZE = 59
+OBS_SIZE = 65
 
 BUILD_COMMAND_TO_STRUCTURE = {
     "BuildNexus":             "NEXUS",
@@ -121,25 +121,25 @@ UPGRADE_COMMAND_TO_LEVEL = {
     "UpgradeAirWeapons3":    ("AIR_WEAPONS",    3),
 }
 
-# Obs feature indices — completed structures (indices 6-20, matching observation_wrapper.py)
-_IDX_NEXUS = 6
-_IDX_PYLON = 7
-_IDX_GATEWAY = 8
-_IDX_WARPGATE = 9
-_IDX_FORGE = 10
-_IDX_TWILIGHTCOUNCIL = 11
-_IDX_PHOTONCANNON = 12
-_IDX_SHIELDBATTERY = 13   # present in obs, not used by mask but listed for clarity
-_IDX_TEMPLARARCHIVE = 14
-_IDX_ROBOTICSBAY = 15
-_IDX_ROBOTICSFACILITY = 16
-_IDX_ASSIMILATOR = 17
-_IDX_CYBERNETICSCORE = 18
-_IDX_STARGATE = 19
-_IDX_FLEETBEACON = 20
+# Obs feature indices — completed structures (indices 12-26, matching observation_wrapper.py)
+_IDX_NEXUS = 12
+_IDX_PYLON = 13
+_IDX_GATEWAY = 14
+_IDX_WARPGATE = 15
+_IDX_FORGE = 16
+_IDX_TWILIGHTCOUNCIL = 17
+_IDX_PHOTONCANNON = 18
+_IDX_SHIELDBATTERY = 19   # present in obs, not used by mask but listed for clarity
+_IDX_TEMPLARARCHIVE = 20
+_IDX_ROBOTICSBAY = 21
+_IDX_ROBOTICSFACILITY = 22
+_IDX_ASSIMILATOR = 23
+_IDX_CYBERNETICSCORE = 24
+_IDX_STARGATE = 25
+_IDX_FLEETBEACON = 26
 
-# Completed units (indices 21-28)
-_IDX_HIGHTEMPLAR = 24
+# Completed units (indices 27-34)
+_IDX_HIGHTEMPLAR = 30
 
 _EPS = 0.01
 
@@ -196,14 +196,14 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     has_robobay = obs[_IDX_ROBOTICSBAY] > _EPS
     has_robo = obs[_IDX_ROBOTICSFACILITY] > _EPS
     has_2ht = obs[_IDX_HIGHTEMPLAR] > (1.5 / 30.0)
-    has_army = any(obs[i] > _EPS for i in range(22, 29))
+    has_army = any(obs[i] > _EPS for i in range(28, 35))
 
-    # Pending structure counts (indices 29-43, same order as completed, /10)
-    # Index mapping: pending_NEXUS=29, PYLON=30, GATEWAY=31, WARPGATE=32,
-    # FORGE=33, TWILIGHTCOUNCIL=34, PHOTONCANNON=35, SHIELDBATTERY=36,
-    # TEMPLARARCHIVE=37, ROBOTICSBAY=38, ROBOTICSFACILITY=39, ASSIMILATOR=40,
-    # CYBERNETICSCORE=41, STARGATE=42, FLEETBEACON=43
-    _P = 29  # pending block starts at index 29
+    # Pending structure counts (indices 35-49, same order as completed, /10)
+    # Index mapping: pending_NEXUS=35, PYLON=36, GATEWAY=37, WARPGATE=38,
+    # FORGE=39, TWILIGHTCOUNCIL=40, PHOTONCANNON=41, SHIELDBATTERY=42,
+    # TEMPLARARCHIVE=43, ROBOTICSBAY=44, ROBOTICSFACILITY=45, ASSIMILATOR=46,
+    # CYBERNETICSCORE=47, STARGATE=48, FLEETBEACON=49
+    _P = 35  # pending block starts at index 35
     pend_gateway = obs[_P + 2] > _EPS   # GATEWAY is 3rd in STRUCTURES list
     pend_cybcore = obs[_P + 12] > _EPS   # CYBERNETICSCORE is 13th
     pend_stargate = obs[_P + 13] > _EPS   # STARGATE is 14th
@@ -420,12 +420,25 @@ class GameState:
 
         obs = [
             t / 720.0,
-            self.minerals / 1800.0,
-            self.vespene / 700.0,
+        ]
+        
+        # Minerals one-hot (4 bins)
+        if self.minerals < 100: obs.extend([1.0, 0.0, 0.0, 0.0])
+        elif self.minerals < 300: obs.extend([0.0, 1.0, 0.0, 0.0])
+        elif self.minerals < 500: obs.extend([0.0, 0.0, 1.0, 0.0])
+        else: obs.extend([0.0, 0.0, 0.0, 1.0])
+
+        # Gas one-hot (4 bins)
+        if self.vespene < 25: obs.extend([1.0, 0.0, 0.0, 0.0])
+        elif self.vespene < 100: obs.extend([0.0, 1.0, 0.0, 0.0])
+        elif self.vespene < 200: obs.extend([0.0, 0.0, 1.0, 0.0])
+        else: obs.extend([0.0, 0.0, 0.0, 1.0])
+
+        obs.extend([
             self.supply_used / 200.0,
             self.supply_cap / 200.0,
             worker_saturation,
-        ]
+        ])
         for s in STRUCTURES:
             obs.append(self.counts[s] / 10.0)
         for u in UNITS:
@@ -645,9 +658,9 @@ class ReplayParser:
                 self.conflicts_dropped += 1
                 if self.debug:
                     print(f"    [CONFLICT DETAIL] window={window} action={action_id} "
-                          f"obs[nexus]={obs[6]:.4f} obs[pylon]={obs[7]:.4f} "
-                          f"obs[gateway]={obs[8]:.4f} obs[cybcore]={obs[18]:.4f} "
-                          f"obs[pending_gateway]={obs[31]:.4f}")
+                          f"obs[nexus]={obs[12]:.4f} obs[pylon]={obs[13]:.4f} "
+                          f"obs[gateway]={obs[14]:.4f} obs[cybcore]={obs[24]:.4f} "
+                          f"obs[pending_gateway]={obs[37]:.4f}")
                 action_id = 0
 
             rows.append(obs + [float(action_id)])

@@ -38,33 +38,33 @@ class ObservationWrapper:
     """
     Converts game state into a flat vector for neural network input.
 
-    Feature layout (59 total):
+    Feature layout (65 total):
         [0]     game time (normalized)
-        [1]     minerals
-        [2]     vespene
-        [3]     supply_used
-        [4]     supply_cap
-        [5]     worker saturation
-        [6:21]  completed structure counts   (15)
-        [21:29] completed unit counts        (8)
-        [29:44] in-progress structure counts (15)
-        [44:52] in-progress unit counts      (8)
-        [52]    idle gateway+warpgate count  (normalised /5)
-        [53]    idle stargate count          (normalised /5)
-        [54]    idle robotics facility count (normalised /5)
-        [55]    idle warpgate count          (normalised /5)
-        [56]    ground weapons level         (normalised /3)
-        [57]    shields level                (normalised /3)
-        [58]    air weapons level            (normalised /3)
+        [1:5]   minerals one-hot (4 bins)
+        [5:9]   vespene one-hot (4 bins)
+        [9]     supply_used
+        [10]    supply_cap
+        [11]    worker saturation
+        [12:27] completed structure counts   (15)
+        [27:35] completed unit counts        (8)
+        [35:50] in-progress structure counts (15)
+        [50:58] in-progress unit counts      (8)
+        [58]    idle gateway+warpgate count  (normalised /5)
+        [59]    idle stargate count          (normalised /5)
+        [60]    idle robotics facility count (normalised /5)
+        [61]    idle warpgate count          (normalised /5)
+        [62]    ground weapons level         (normalised /3)
+        [63]    shields level                (normalised /3)
+        [64]    air weapons level            (normalised /3)
     """
 
     def __init__(self):
         self.observation_size = self.calculate_obs_size()
 
     def calculate_obs_size(self):
-        # 6 base + 15 structs + 8 units + 15 structs_pending + 8 units_pending
+        # 12 base + 15 structs + 8 units + 15 structs_pending + 8 units_pending
         # + 4 idle production buildings + 3 upgrade levels
-        return (6
+        return (12
                 + len(PROTOSS_STRUCTURES)
                 + len(PROTOSS_UNITS)
                 + len(PROTOSS_STRUCTURES)
@@ -77,8 +77,19 @@ class ObservationWrapper:
 
         # Base features
         obs.append(bot.time / 720.0)
-        obs.append(bot.minerals / 1800.0)
-        obs.append(bot.vespene / 700.0)
+
+        # Minerals one-hot (4 bins)
+        if bot.minerals < 100: obs.extend([1.0, 0.0, 0.0, 0.0])
+        elif bot.minerals < 300: obs.extend([0.0, 1.0, 0.0, 0.0])
+        elif bot.minerals < 500: obs.extend([0.0, 0.0, 1.0, 0.0])
+        else: obs.extend([0.0, 0.0, 0.0, 1.0])
+
+        # Gas one-hot (4 bins)
+        if bot.vespene < 25: obs.extend([1.0, 0.0, 0.0, 0.0])
+        elif bot.vespene < 100: obs.extend([0.0, 1.0, 0.0, 0.0])
+        elif bot.vespene < 200: obs.extend([0.0, 0.0, 1.0, 0.0])
+        else: obs.extend([0.0, 0.0, 0.0, 1.0])
+
         obs.append(bot.supply_used / 200.0)
         obs.append(bot.supply_cap / 200.0)
 
