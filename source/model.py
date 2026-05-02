@@ -2,7 +2,7 @@
 SC2 Protoss Imitation Learning — MLP Model + Training Script
 =============================================================
 Architecture:
-    obs (59,) -> Linear encoder (59->64) -> MLP head (64->128->64->34 logits)
+    obs (59,) -> MLP head (59->128->64->35 logits)
 
 Legal-action masking applied consistently in BOTH the training loop
 and predict_action, via the shared action_mask module.
@@ -22,13 +22,12 @@ from action_mask import apply_legal_mask, apply_training_mask
 # Config
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
-CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints"
+CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 
 OBS_SIZE = 59   # 6 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
 NUM_ACTIONS = 35   # action 0 = do_nothing, kept for index stability
 
 # Model hyper-params
-ENCODER_DIM = 64
 HEAD_HIDDEN = 128
 DROPOUT = 0.3
 
@@ -54,27 +53,20 @@ INFERENCE_TEMPERATURE = 0.8
 class ProtossMLPModel(nn.Module):
     """
     Pure MLP: encodes each game-state observation independently and decodes
-    it into action logits. No recurrent state — each step is stateless.
+    it into action logits
     """
 
     def __init__(
         self,
         obs_size:    int = OBS_SIZE,
-        encoder_dim: int = ENCODER_DIM,
         head_hidden: int = HEAD_HIDDEN,
         num_actions: int = NUM_ACTIONS,
         dropout:     float = DROPOUT,
     ):
         super().__init__()
 
-        self.encoder = nn.Sequential(
-            nn.Linear(obs_size, encoder_dim),
-            nn.LayerNorm(encoder_dim),
-            nn.GELU(),
-        )
-
         self.head = nn.Sequential(
-            nn.Linear(encoder_dim, head_hidden),
+            nn.Linear(obs_size, head_hidden),
             nn.LayerNorm(head_hidden),
             nn.GELU(),
             nn.Dropout(dropout),
@@ -102,8 +94,7 @@ class ProtossMLPModel(nn.Module):
         """
         shape = x.shape
         flat = x.reshape(-1, shape[-1])
-        enc = self.encoder(flat)
-        logits = self.head(enc)
+        logits = self.head(flat)
         return logits.reshape(*shape[:-1], -1)
 
 
@@ -345,7 +336,6 @@ def train():
                 "val_acc":     val_acc,
                 "obs_size":    OBS_SIZE,
                 "num_actions": NUM_ACTIONS,
-                "encoder_dim": ENCODER_DIM,
                 "head_hidden": HEAD_HIDDEN,
             }, best_path)
             if MODEL_SELECTION == "accuracy":
@@ -369,7 +359,6 @@ def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossMLPModel:
     model = ProtossMLPModel(
         obs_size=ckpt["obs_size"],
         num_actions=ckpt["num_actions"],
-        encoder_dim=ckpt.get("encoder_dim", ENCODER_DIM),
         head_hidden=ckpt.get("head_hidden", HEAD_HIDDEN),
     )
     model.load_state_dict(ckpt["model_state"])
