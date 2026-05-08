@@ -124,8 +124,8 @@ def build_legal_mask(obs: torch.Tensor) -> torch.Tensor:
     has_fleet = obs[:, IDX_FLEETBEACON] > EPS
     has_robobay = obs[:, IDX_ROBOTICSBAY] > EPS
 
-    # --- 1-of building caps (never build a second) ---
-    no_cybcore = ~has_cybcore
+    # --- Building caps ---
+    under_cybcore_cap = obs[:, IDX_CYBERNETICSCORE] < (1.5 / 10.0)
     no_twilight = obs[:, IDX_TWILIGHTCOUNCIL] < EPS
     no_fleet = obs[:, IDX_FLEETBEACON] < EPS
     no_temparch = obs[:, IDX_TEMPLARARCHIVE] < EPS
@@ -168,8 +168,8 @@ def build_legal_mask(obs: torch.Tensor) -> torch.Tensor:
     # Action 3: build_gateway — needs Pylon
     mask[:, 3] = has_pylon
 
-    # Action 4: build_cyberneticscore — needs Gateway, must not already have one
-    mask[:, 4] = has_gateway & no_cybcore
+    # Action 4: build_cyberneticscore — needs Gateway, max 2 allowed
+    mask[:, 4] = has_gateway & under_cybcore_cap
 
     # Action 5: build_assimilator — needs Nexus
     mask[:, 5] = has_nexus
@@ -312,6 +312,7 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
     has_warpgate = obs[:, IDX_WARPGATE]        > EPS
 
     # --- Pending structure presence ---
+    pend_pylon    = obs[:, IDX_PEND_PYLON]           > EPS
     pend_gateway  = obs[:, IDX_PEND_GATEWAY]         > EPS
     pend_warpgate = obs[:, IDX_PEND_WARPGATE]        > EPS
     pend_cybcore  = obs[:, IDX_PEND_CYBERNETICSCORE] > EPS
@@ -322,6 +323,7 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
     pend_forge    = obs[:, IDX_PEND_FORGE]           > EPS
 
     # --- Pending-or-complete: player has committed to building this ---
+    poc_pylon    = has_pylon    | pend_pylon
     poc_gateway  = has_gateway  | pend_gateway
     poc_warpgate = has_warpgate | pend_warpgate
     poc_cybcore  = has_cybcore  | pend_cybcore
@@ -331,8 +333,8 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
     poc_temparch = has_temparch | pend_temparch
     poc_forge    = has_forge    | pend_forge
 
-    # --- 1-of building caps (same as inference — pros never build a second) ---
-    no_cybcore  = ~has_cybcore
+    # --- Building caps ---
+    under_cybcore_cap = obs[:, IDX_CYBERNETICSCORE] < (1.5 / 10.0)
     no_twilight = ~has_twilight
     no_fleet    = ~has_fleet
     no_temparch = ~has_temparch
@@ -361,10 +363,10 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
     mask[:, 2] = True
 
     # Action 3: build_gateway — needs Pylon
-    mask[:, 3] = has_pylon
+    mask[:, 3] = poc_pylon
 
-    # Action 4: build_cyberneticscore — gateway poc, no existing cybcore
-    mask[:, 4] = poc_gateway & no_cybcore
+    # Action 4: build_cyberneticscore — gateway poc, max 2 allowed
+    mask[:, 4] = poc_gateway & under_cybcore_cap
 
     # Action 5: build_assimilator — needs Nexus
     mask[:, 5] = has_nexus
@@ -373,7 +375,7 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
     mask[:, 6] = True
 
     # Action 7: build_forge — needs Pylon
-    mask[:, 7] = has_pylon
+    mask[:, 7] = poc_pylon
 
     # Action 8: build_stargate — cybcore poc
     mask[:, 8] = poc_cybcore

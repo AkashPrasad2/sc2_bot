@@ -144,7 +144,7 @@ _IDX_HIGHTEMPLAR = 30
 _EPS = 0.01
 
 
-def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
+def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     """
     Pure-numpy mirror of action_mask.build_legal_mask for a single obs vector,
     with PARSER-SPECIFIC relaxations to avoid false conflict demotions.
@@ -180,7 +180,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     be able to execute the action right now.
     """
     if action_id == 0:
-        return True
+        return True, ""
 
     # Completed structure counts (indices 6-20, normalised /10)
     has_nexus = obs[_IDX_NEXUS] > _EPS
@@ -204,6 +204,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     # TEMPLARARCHIVE=43, ROBOTICSBAY=44, ROBOTICSFACILITY=45, ASSIMILATOR=46,
     # CYBERNETICSCORE=47, STARGATE=48, FLEETBEACON=49
     _P = 35  # pending block starts at index 35
+    pend_pylon = obs[_P + 1] > _EPS     # PYLON is 2nd in STRUCTURES list
     pend_gateway = obs[_P + 2] > _EPS   # GATEWAY is 3rd in STRUCTURES list
     pend_cybcore = obs[_P + 12] > _EPS   # CYBERNETICSCORE is 13th
     pend_stargate = obs[_P + 13] > _EPS   # STARGATE is 14th
@@ -213,6 +214,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     pend_temparch = obs[_P + 8] > _EPS   # TEMPLARARCHIVE is 9th
 
     # Pending-or-complete: "player has committed to building this"
+    poc_pylon = has_pylon or pend_pylon
     poc_gateway = has_gateway or pend_gateway
     poc_cybcore = has_cybcore or pend_cybcore
     poc_stargate = has_stargate or pend_stargate
@@ -221,113 +223,113 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> bool:
     poc_warpgate = has_warpgate or pend_warpgate
     poc_temparch = has_temparch or pend_temparch
 
-    # 1-of building caps
-    no_cybcore = not has_cybcore
+    # Building caps
+    under_cybcore_cap = obs[_IDX_CYBERNETICSCORE] < (1.5 / 10.0)
     no_twilight = not has_twilight
     no_fleet = not has_fleet
     no_temparch = not has_temparch
 
     rules = {
         # train_probe: needs nexus (no queue cap in parser)
-        1:  has_nexus,
+        1:  (has_nexus, "needs nexus"),
 
         # build_pylon: always legal
-        2:  True,
+        2:  (True, ""),
 
         # build_gateway: needs pylon
-        3:  has_pylon,
+        3:  (poc_pylon, "needs poc_pylon"),
 
-        # build_cyberneticscore: gateway pending-or-complete, and no existing cybcore
-        4:  poc_gateway and no_cybcore,
+        # build_cyberneticscore: gateway pending-or-complete, max 2 allowed
+        4:  (poc_gateway and under_cybcore_cap, "needs poc_gateway and under_cybcore_cap"),
 
         # build_assimilator: needs nexus
-        5:  has_nexus,
+        5:  (has_nexus, "needs nexus"),
 
         # build_nexus: always legal
-        6:  True,
+        6:  (True, ""),
 
         # build_forge: needs pylon
-        7:  has_pylon,
+        7:  (poc_pylon, "needs poc_pylon"),
 
         # build_stargate: cybcore pending-or-complete
-        8:  poc_cybcore,
+        8:  (poc_cybcore, "needs poc_cybcore"),
 
         # build_robotics_facility: cybcore pending-or-complete
-        9:  poc_cybcore,
+        9:  (poc_cybcore, "needs poc_cybcore"),
 
         # build_twilight_council: cybcore pending-or-complete, no existing twilight
-        10: poc_cybcore and no_twilight,
+        10: (poc_cybcore and no_twilight, "needs poc_cybcore and no_twilight"),
 
         # build_photon_cannon: needs completed forge
-        11: has_forge,
+        11: (has_forge, "needs forge"),
 
         # build_fleet_beacon: stargate pending-or-complete, no existing fleet beacon
-        12: poc_stargate and no_fleet,
+        12: (poc_stargate and no_fleet, "needs poc_stargate and no_fleet"),
 
         # build_templar_archive: twilight pending-or-complete, no existing templar archive
-        13: poc_twilight and no_temparch,
+        13: (poc_twilight and no_temparch, "needs poc_twilight and no_temparch"),
 
         # train_zealot: gateway pending-or-complete (don't require idle count — drifts)
-        14: poc_gateway,
+        14: (poc_gateway, "needs poc_gateway"),
 
         # train_stalker: gateway + cybcore both pending-or-complete
-        15: poc_gateway and poc_cybcore,
+        15: (poc_gateway and poc_cybcore, "needs poc_gateway and poc_cybcore"),
 
         # train_immortal: robo pending-or-complete
-        16: poc_robo,
+        16: (poc_robo, "needs poc_robo"),
 
         # train_voidray: stargate pending-or-complete
-        17: poc_stargate,
+        17: (poc_stargate, "needs poc_stargate"),
 
         # train_carrier: stargate pending-or-complete + fleet beacon complete
-        18: poc_stargate and has_fleet,
+        18: (poc_stargate and has_fleet, "needs poc_stargate and has_fleet"),
 
         # train_high_templar: gateway pending-or-complete + templar archive pending-or-complete
-        19: poc_gateway and poc_temparch,
+        19: (poc_gateway and poc_temparch, "needs poc_gateway and poc_temparch"),
 
         # warp_in_zealot: warpgate pending-or-complete
-        20: poc_warpgate,
+        20: (poc_warpgate, "needs poc_warpgate"),
 
         # warp_in_stalker: warpgate + cybcore both pending-or-complete
-        21: poc_warpgate and poc_cybcore,
+        21: (poc_warpgate and poc_cybcore, "needs poc_warpgate and poc_cybcore"),
 
         # warp_in_high_templar: warpgate + templar archive both pending-or-complete
-        22: poc_warpgate and poc_temparch,
+        22: (poc_warpgate and poc_temparch, "needs poc_warpgate and poc_temparch"),
 
         # archon_warp: needs 2 completed high templars
-        23: has_2ht,
+        23: (has_2ht, "needs 2 completed high templars"),
 
         # research_charge: twilight pending-or-complete
-        24: poc_twilight,
+        24: (poc_twilight, "needs poc_twilight"),
 
         # research_warp_gate: cybcore pending-or-complete
-        25: poc_cybcore,
+        25: (poc_cybcore, "needs poc_cybcore"),
 
         # upgrade_ground_weapons: needs completed forge
-        26: has_forge,
+        26: (has_forge, "needs forge"),
 
         # upgrade_air_weapons: cybcore pending-or-complete
-        27: poc_cybcore,
+        27: (poc_cybcore, "needs poc_cybcore"),
 
         # upgrade_shields: needs completed forge
-        28: has_forge,
+        28: (has_forge, "needs forge"),
 
         # attack_enemy_base: needs army
-        29: has_army,
+        29: (has_army, "needs army"),
 
         # train_adept: gateway + cybcore pending-or-complete
-        30: poc_gateway and poc_cybcore,
+        30: (poc_gateway and poc_cybcore, "needs poc_gateway and poc_cybcore"),
 
         # train_phoenix: stargate pending-or-complete
-        31: poc_stargate,
+        31: (poc_stargate, "needs poc_stargate"),
 
         # train_colossus: robo pending-or-complete + robobay complete
-        32: poc_robo and has_robobay,
+        32: (poc_robo and has_robobay, "needs poc_robo and has_robobay"),
 
         # warp_in_adept: warpgate + cybcore pending-or-complete
-        33: poc_warpgate and poc_cybcore,
+        33: (poc_warpgate and poc_cybcore, "needs poc_warpgate and poc_cybcore"),
     }
-    return rules.get(action_id, False)
+    return rules.get(action_id, (False, "unknown action"))
 
 
 # ---------------------------------------------------------------------------
@@ -654,14 +656,33 @@ class ReplayParser:
 
             action_id = grid_actions.get(window, 0)   # default: do_nothing
 
-            if action_id != 0 and not _action_legal_numpy(obs, action_id):
-                self.conflicts_dropped += 1
-                if self.debug:
-                    print(f"    [CONFLICT DETAIL] window={window} action={action_id} "
-                          f"obs[nexus]={obs[12]:.4f} obs[pylon]={obs[13]:.4f} "
-                          f"obs[gateway]={obs[14]:.4f} obs[cybcore]={obs[24]:.4f} "
-                          f"obs[pending_gateway]={obs[37]:.4f}")
-                action_id = 0
+            if action_id != 0:
+                is_legal, reason = _action_legal_numpy(obs, action_id)
+                if not is_legal:
+                    self.conflicts_dropped += 1
+                    if self.debug:
+                        action_name = "unknown"
+                        for k, v in self.EVENT_TO_ACTION.items():
+                            if v == action_id:
+                                action_name = k
+                                break
+
+                        state_strs = []
+                        for i, name in enumerate(STRUCTURES):
+                            h = obs[12 + i] * 10
+                            p = obs[35 + i] * 10
+                            if h > 0 or p > 0:
+                                state_strs.append(f"{name}(h={h:.0f},p={p:.0f})")
+                        for i, name in enumerate(UNITS):
+                            h = obs[27 + i] * 30
+                            p = obs[50 + i] * 30
+                            if h > 0 or p > 0:
+                                state_strs.append(f"{name}(h={h:.0f},p={p:.0f})")
+
+                        state_str = ", ".join(state_strs) if state_strs else "No structures/units"
+                        print(f"    [CONFLICT] window={window} action={action_id} ({action_name}) - Failed: {reason}")
+                        print(f"               State: {state_str}")
+                    action_id = 0
 
             rows.append(obs + [float(action_id)])
 
