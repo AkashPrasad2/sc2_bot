@@ -24,7 +24,6 @@ from action_mask import apply_legal_mask, apply_training_mask
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
-CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 
 OBS_SIZE = 65   # 1 time + 4 min + 4 gas + 3 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
 NUM_ACTIONS = 35   # action 0 = do_nothing, kept for index stability
@@ -68,7 +67,6 @@ class ProtossMLPModel(nn.Module):
 
         self.head = nn.Sequential(
             nn.Linear(obs_size, head_hidden),
-            nn.Linear(obs_size, head_hidden),
             nn.LayerNorm(head_hidden),
             nn.GELU(),
             nn.Dropout(dropout),
@@ -84,7 +82,7 @@ class ProtossMLPModel(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                nn.init.kaiming_normal_(m.weight, nonlinearity="gelu")
                 nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -96,7 +94,6 @@ class ProtossMLPModel(nn.Module):
         """
         shape = x.shape
         flat = x.reshape(-1, shape[-1])
-        logits = self.head(flat)
         logits = self.head(flat)
         return logits.reshape(*shape[:-1], -1)
 
