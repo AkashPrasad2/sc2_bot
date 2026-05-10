@@ -44,7 +44,7 @@ IDX_STARGATE = 25
 IDX_FLEETBEACON = 26
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — completed unit counts (indices 27-34)
+# Obs feature indices — completed unit counts (indices 27-37)
 # ---------------------------------------------------------------------------
 IDX_PROBE = 27
 IDX_ZEALOT = 28
@@ -54,46 +54,49 @@ IDX_ARCHON = 31
 IDX_IMMORTAL = 32
 IDX_CARRIER = 33
 IDX_VOIDRAY = 34
+IDX_ADEPT = 35
+IDX_PHOENIX = 36
+IDX_COLOSSUS = 37
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — pending unit counts (indices 50-57)
+# Obs feature indices — pending unit counts (indices 53-63)
 # ---------------------------------------------------------------------------
-IDX_PENDING_PROBE = 50
+IDX_PENDING_PROBE = 53
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — pending structure counts (indices 35-49)
-# Same order as completed structures (12-26); offset = +23.
+# Obs feature indices — pending structure counts (indices 38-52)
+# Same order as completed structures (12-26); offset = +26.
 # ---------------------------------------------------------------------------
-IDX_PEND_NEXUS            = 35
-IDX_PEND_PYLON            = 36
-IDX_PEND_GATEWAY          = 37
-IDX_PEND_WARPGATE         = 38
-IDX_PEND_FORGE            = 39
-IDX_PEND_TWILIGHTCOUNCIL  = 40
-IDX_PEND_PHOTONCANNON     = 41
-IDX_PEND_SHIELDBATTERY    = 42
-IDX_PEND_TEMPLARARCHIVE   = 43
-IDX_PEND_ROBOTICSBAY      = 44
-IDX_PEND_ROBOTICSFACILITY = 45
-IDX_PEND_ASSIMILATOR      = 46
-IDX_PEND_CYBERNETICSCORE  = 47
-IDX_PEND_STARGATE         = 48
-IDX_PEND_FLEETBEACON      = 49
+IDX_PEND_NEXUS            = 38
+IDX_PEND_PYLON            = 39
+IDX_PEND_GATEWAY          = 40
+IDX_PEND_WARPGATE         = 41
+IDX_PEND_FORGE            = 42
+IDX_PEND_TWILIGHTCOUNCIL  = 43
+IDX_PEND_PHOTONCANNON     = 44
+IDX_PEND_SHIELDBATTERY    = 45
+IDX_PEND_TEMPLARARCHIVE   = 46
+IDX_PEND_ROBOTICSBAY      = 47
+IDX_PEND_ROBOTICSFACILITY = 48
+IDX_PEND_ASSIMILATOR      = 49
+IDX_PEND_CYBERNETICSCORE  = 50
+IDX_PEND_STARGATE         = 51
+IDX_PEND_FLEETBEACON      = 52
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — idle production building counts (indices 58-61)
+# Obs feature indices — idle production building counts (indices 64-67)
 # ---------------------------------------------------------------------------
-IDX_IDLE_GW_WG = 58
-IDX_IDLE_SG = 59
-IDX_IDLE_ROBO = 60
-IDX_IDLE_WG = 61
+IDX_IDLE_GW_WG = 64
+IDX_IDLE_SG = 65
+IDX_IDLE_ROBO = 66
+IDX_IDLE_WG = 67
 
 # ---------------------------------------------------------------------------
-# Obs feature indices — upgrade levels (indices 62-64)
+# Obs feature indices — upgrade levels (indices 68-70)
 # ---------------------------------------------------------------------------
-IDX_GROUND_WEAPONS_LVL = 62
-IDX_SHIELDS_LVL = 63
-IDX_AIR_WEAPONS_LVL = 64
+IDX_GROUND_WEAPONS_LVL = 68
+IDX_SHIELDS_LVL = 69
+IDX_AIR_WEAPONS_LVL = 70
 
 EPS = 0.01
 
@@ -152,7 +155,10 @@ def build_legal_mask(obs: torch.Tensor) -> torch.Tensor:
         (obs[:, IDX_IMMORTAL] > EPS) |
         (obs[:, IDX_VOIDRAY] > EPS) |
         (obs[:, IDX_CARRIER] > EPS) |
-        (obs[:, IDX_ARCHON] > EPS)
+        (obs[:, IDX_ARCHON] > EPS) |
+        (obs[:, IDX_ADEPT] > EPS) |
+        (obs[:, IDX_PHOENIX] > EPS) |
+        (obs[:, IDX_COLOSSUS] > EPS)
     )
 
     # ------------------------------------------------------------------
@@ -349,7 +355,10 @@ def build_training_mask(obs: torch.Tensor) -> torch.Tensor:
         (obs[:, IDX_IMMORTAL] > EPS) |
         (obs[:, IDX_VOIDRAY]  > EPS) |
         (obs[:, IDX_CARRIER]  > EPS) |
-        (obs[:, IDX_ARCHON]   > EPS)
+        (obs[:, IDX_ARCHON]   > EPS) |
+        (obs[:, IDX_ADEPT]    > EPS) |
+        (obs[:, IDX_PHOENIX]  > EPS) |
+        (obs[:, IDX_COLOSSUS] > EPS)
     )
 
     # ------------------------------------------------------------------

@@ -2,8 +2,7 @@
 SC2 Protoss Imitation Learning — MLP Model + Training Script
 =============================================================
 Architecture:
-    obs (59,) -> MLP head (59->128->64->35 logits)
-    obs (59,) -> MLP head (59->128->64->35 logits)
+    obs (71,) -> MLP head (71->128->64->35 logits)
 
 Legal-action masking applied consistently in BOTH the training loop
 and predict_action, via the shared action_mask module.
@@ -25,7 +24,7 @@ from action_mask import apply_legal_mask, apply_training_mask
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
 CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
 
-OBS_SIZE = 65   # 1 time + 4 min + 4 gas + 3 base + 15 structures + 8 units + 15 pending structs + 8 pending units + 4 idle + 3 upgrade levels
+OBS_SIZE = 71   # 1 time + 4 min + 4 gas + 3 base + 15 structures + 11 units + 15 pending structs + 11 pending units + 4 idle + 3 upgrade levels
 NUM_ACTIONS = 35   # action 0 = do_nothing, kept for index stability
 
 # Model hyper-params
@@ -39,9 +38,9 @@ LR = 3e-4
 VAL_SPLIT = 0.15
 SEED = 54
 
-# "accuracy" = save model with best validation accuracy (better generalization)
-# "loss" = save model with lowest validation loss (better imitation)
-MODEL_SELECTION = "accuracy"  # Change to "accuracy" to switch
+# "accuracy" = save model with best validation accuracy
+# "loss" = save model with lowest validation loss
+MODEL_SELECTION = "accuracy"
 
 # keep the decisions diverse (not applied during training, only inference)
 INFERENCE_TEMPERATURE = 1.2

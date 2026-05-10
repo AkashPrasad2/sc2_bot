@@ -61,6 +61,9 @@ UNIT_NAME_MAP = {
     "Immortal":     "IMMORTAL",
     "Carrier":      "CARRIER",
     "VoidRay":      "VOIDRAY",
+    "Adept":        "ADEPT",
+    "Phoenix":      "PHOENIX",
+    "Colossus":     "COLOSSUS",
 }
 
 STRUCTURES = [
@@ -70,9 +73,10 @@ STRUCTURES = [
 ]
 UNITS = [
     "PROBE", "ZEALOT", "STALKER", "HIGHTEMPLAR", "ARCHON", "IMMORTAL", "CARRIER", "VOIDRAY",
+    "ADEPT", "PHOENIX", "COLOSSUS",
 ]
 
-OBS_SIZE = 65
+OBS_SIZE = 71
 
 BUILD_COMMAND_TO_STRUCTURE = {
     "BuildNexus":             "NEXUS",
@@ -100,6 +104,10 @@ TRAIN_COMMAND_TO_UNIT = {
     "WarpInZealot":       "ZEALOT",
     "WarpInStalker":      "STALKER",
     "WarpInHighTemplar":  "HIGHTEMPLAR",
+    "TrainAdept":         "ADEPT",
+    "TrainPhoenix":       "PHOENIX",
+    "TrainColossus":      "COLOSSUS",
+    "WarpInAdept":        "ADEPT",
 }
 
 MORPH_MAP = {
@@ -138,7 +146,7 @@ _IDX_CYBERNETICSCORE = 24
 _IDX_STARGATE = 25
 _IDX_FLEETBEACON = 26
 
-# Completed units (indices 27-34)
+# Completed units (indices 27-37)
 _IDX_HIGHTEMPLAR = 30
 
 _EPS = 0.01
@@ -190,14 +198,14 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     has_robobay = obs[_IDX_ROBOTICSBAY] > _EPS
     has_robo = obs[_IDX_ROBOTICSFACILITY] > _EPS
     has_2ht = obs[_IDX_HIGHTEMPLAR] > (1.5 / 30.0)
-    has_army = any(obs[i] > _EPS for i in range(28, 35))
+    has_army = any(obs[i] > _EPS for i in range(28, 38))
 
-    # Pending structure counts (indices 35-49, same order as completed, /10)
-    # Index mapping: pending_NEXUS=35, PYLON=36, GATEWAY=37, WARPGATE=38,
-    # FORGE=39, TWILIGHTCOUNCIL=40, PHOTONCANNON=41, SHIELDBATTERY=42,
-    # TEMPLARARCHIVE=43, ROBOTICSBAY=44, ROBOTICSFACILITY=45, ASSIMILATOR=46,
-    # CYBERNETICSCORE=47, STARGATE=48, FLEETBEACON=49
-    _P = 35  # pending block starts at index 35
+    # Pending structure counts (indices 38-52, same order as completed, /10)
+    # Index mapping: pending_NEXUS=38, PYLON=39, GATEWAY=40, WARPGATE=41,
+    # FORGE=42, TWILIGHTCOUNCIL=43, PHOTONCANNON=44, SHIELDBATTERY=45,
+    # TEMPLARARCHIVE=46, ROBOTICSBAY=47, ROBOTICSFACILITY=48, ASSIMILATOR=49,
+    # CYBERNETICSCORE=50, STARGATE=51, FLEETBEACON=52
+    _P = 38  # pending block starts at index 38
     pend_pylon = obs[_P + 1] > _EPS     # PYLON is 2nd in STRUCTURES list
     pend_gateway = obs[_P + 2] > _EPS   # GATEWAY is 3rd in STRUCTURES list
     pend_cybcore = obs[_P + 12] > _EPS   # CYBERNETICSCORE is 13th
@@ -441,32 +449,35 @@ class GameState:
         for u in UNITS:
             obs.append(self.pending_units[u] / 30.0)
 
-        # Idle production building features (indices 58-61)
+        # Idle production building features (indices 64-67)
         gw_wg_total = self.counts["GATEWAY"] + self.counts["WARPGATE"]
         gw_wg_busy = (self.pending_units["ZEALOT"]
                       + self.pending_units["STALKER"]
-                      + self.pending_units["HIGHTEMPLAR"])
+                      + self.pending_units["HIGHTEMPLAR"]
+                      + self.pending_units["ADEPT"])
         idle_gw_wg = max(0, gw_wg_total - gw_wg_busy)
 
-        sg_busy = self.pending_units["VOIDRAY"] + self.pending_units["CARRIER"]
+        sg_busy = (self.pending_units["VOIDRAY"] + self.pending_units["CARRIER"]
+                   + self.pending_units["PHOENIX"])
         idle_sg = max(0, self.counts["STARGATE"] - sg_busy)
 
-        robo_busy = self.pending_units["IMMORTAL"]
+        robo_busy = (self.pending_units["IMMORTAL"]
+                     + self.pending_units["COLOSSUS"])
         idle_robo = max(0, self.counts["ROBOTICSFACILITY"] - robo_busy)
 
         wg_count = self.counts["WARPGATE"]
         idle_wg = max(
             0, wg_count - max(0, gw_wg_busy - self.counts["GATEWAY"]))
 
-        obs.append(idle_gw_wg / 5.0)   # index 58
-        obs.append(idle_sg / 5.0)   # index 59
-        obs.append(idle_robo / 5.0)   # index 60
-        obs.append(idle_wg / 5.0)   # index 61
+        obs.append(idle_gw_wg / 5.0)   # index 64
+        obs.append(idle_sg / 5.0)   # index 65
+        obs.append(idle_robo / 5.0)   # index 66
+        obs.append(idle_wg / 5.0)   # index 67
 
-        # Upgrade levels (indices 62-64): highest level commanded, normalised /3.
-        obs.append(self.upgrade_lvls["GROUND_WEAPONS"] / 3.0)  # index 62
-        obs.append(self.upgrade_lvls["SHIELDS"] / 3.0)         # index 63
-        obs.append(self.upgrade_lvls["AIR_WEAPONS"] / 3.0)     # index 64
+        # Upgrade levels (indices 68-70): highest level commanded, normalised /3.
+        obs.append(self.upgrade_lvls["GROUND_WEAPONS"] / 3.0)  # index 68
+        obs.append(self.upgrade_lvls["SHIELDS"] / 3.0)         # index 69
+        obs.append(self.upgrade_lvls["AIR_WEAPONS"] / 3.0)     # index 70
 
         assert len(
             obs) == OBS_SIZE, f"Obs size mismatch: {len(obs)} vs {OBS_SIZE}"
@@ -621,7 +632,7 @@ class ReplayParser:
                     self.max_queue_lag_seen = lag
                     if self.debug:
                         print(f"    [NEW MAX LAG] {ability_name} at t={t:.1f}s "
-                              f"pushed {lag} window(s) → slot {slot} "
+                              f"pushed {lag} window(s) -> slot {slot} "
                               f"(t={slot * G:.0f}s)")
 
                 grid_actions[slot] = action_id
@@ -656,12 +667,12 @@ class ReplayParser:
                         state_strs = []
                         for i, name in enumerate(STRUCTURES):
                             h = obs[12 + i] * 10
-                            p = obs[35 + i] * 10
+                            p = obs[38 + i] * 10
                             if h > 0 or p > 0:
                                 state_strs.append(f"{name}(h={h:.0f},p={p:.0f})")
                         for i, name in enumerate(UNITS):
                             h = obs[27 + i] * 30
-                            p = obs[50 + i] * 30
+                            p = obs[53 + i] * 30
                             if h > 0 or p > 0:
                                 state_strs.append(f"{name}(h={h:.0f},p={p:.0f})")
 

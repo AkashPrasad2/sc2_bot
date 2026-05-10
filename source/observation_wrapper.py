@@ -21,7 +21,7 @@ PROTOSS_STRUCTURES = [
     UnitTypeId.FLEETBEACON,
 ]
 
-# 8 units
+# 11 units
 PROTOSS_UNITS = [
     UnitTypeId.PROBE,
     UnitTypeId.ZEALOT,
@@ -31,6 +31,9 @@ PROTOSS_UNITS = [
     UnitTypeId.IMMORTAL,
     UnitTypeId.CARRIER,
     UnitTypeId.VOIDRAY,
+    UnitTypeId.ADEPT,
+    UnitTypeId.PHOENIX,
+    UnitTypeId.COLOSSUS,
 ]
 
 
@@ -38,7 +41,7 @@ class ObservationWrapper:
     """
     Converts game state into a flat vector for neural network input.
 
-    Feature layout (65 total):
+    Feature layout (71 total):
         [0]     game time (normalized)
         [1:5]   minerals one-hot (4 bins)
         [5:9]   vespene one-hot (4 bins)
@@ -46,16 +49,16 @@ class ObservationWrapper:
         [10]    supply_cap
         [11]    worker saturation
         [12:27] completed structure counts   (15)
-        [27:35] completed unit counts        (8)
-        [35:50] in-progress structure counts (15)
-        [50:58] in-progress unit counts      (8)
-        [58]    idle gateway+warpgate count  (normalised /5)
-        [59]    idle stargate count          (normalised /5)
-        [60]    idle robotics facility count (normalised /5)
-        [61]    idle warpgate count          (normalised /5)
-        [62]    ground weapons level         (normalised /3)
-        [63]    shields level                (normalised /3)
-        [64]    air weapons level            (normalised /3)
+        [27:38] completed unit counts        (11)
+        [38:53] in-progress structure counts (15)
+        [53:64] in-progress unit counts      (11)
+        [64]    idle gateway+warpgate count  (normalised /5)
+        [65]    idle stargate count          (normalised /5)
+        [66]    idle robotics facility count (normalised /5)
+        [67]    idle warpgate count          (normalised /5)
+        [68]    ground weapons level         (normalised /3)
+        [69]    shields level                (normalised /3)
+        [70]    air weapons level            (normalised /3)
     """
 
     def __init__(self):
@@ -120,18 +123,21 @@ class ObservationWrapper:
         wg_count = bot.structures(UnitTypeId.WARPGATE).ready.amount
         gw_wg_busy = (bot.already_pending(UnitTypeId.ZEALOT)
                       + bot.already_pending(UnitTypeId.STALKER)
-                      + bot.already_pending(UnitTypeId.HIGHTEMPLAR))
+                      + bot.already_pending(UnitTypeId.HIGHTEMPLAR)
+                      + bot.already_pending(UnitTypeId.ADEPT))
         idle_gw_wg = max(0, (gw_count + wg_count) - gw_wg_busy)
 
         # Stargate: idle if stargate count exceeds air units in production.
         sg_count = bot.structures(UnitTypeId.STARGATE).ready.amount
         sg_busy = (bot.already_pending(UnitTypeId.VOIDRAY)
-                   + bot.already_pending(UnitTypeId.CARRIER))
+                   + bot.already_pending(UnitTypeId.CARRIER)
+                   + bot.already_pending(UnitTypeId.PHOENIX))
         idle_sg = max(0, sg_count - sg_busy)
 
         # Robotics Facility: idle if count exceeds immortals in production.
         robo_count = bot.structures(UnitTypeId.ROBOTICSFACILITY).ready.amount
-        robo_busy = bot.already_pending(UnitTypeId.IMMORTAL)
+        robo_busy = (bot.already_pending(UnitTypeId.IMMORTAL)
+                     + bot.already_pending(UnitTypeId.COLOSSUS))
         idle_robo = max(0, robo_count - robo_busy)
 
         # Warpgate-specific idle: warpgates whose warp cooldown has expired.
@@ -139,10 +145,10 @@ class ObservationWrapper:
         # not currently warping anything.
         idle_wg = max(0, wg_count - max(0, gw_wg_busy - gw_count))
 
-        obs.append(idle_gw_wg / 5.0)   # index 58
-        obs.append(idle_sg / 5.0)   # index 59
-        obs.append(idle_robo / 5.0)   # index 60
-        obs.append(idle_wg / 5.0)   # index 61
+        obs.append(idle_gw_wg / 5.0)   # index 64
+        obs.append(idle_sg / 5.0)   # index 65
+        obs.append(idle_robo / 5.0)   # index 66
+        obs.append(idle_wg / 5.0)   # index 67
 
         # Upgrade levels: committed = completed OR currently being researched.
         # Matches the pending-or-complete convention used in the replay parser.
@@ -172,8 +178,8 @@ class ObservationWrapper:
             UpgradeId.PROTOSSAIRWEAPONSLEVEL3,
         ])
 
-        obs.append(gw_lvl / 3.0)   # index 62
-        obs.append(sh_lvl / 3.0)   # index 63
-        obs.append(aw_lvl / 3.0)   # index 64
+        obs.append(gw_lvl / 3.0)   # index 68
+        obs.append(sh_lvl / 3.0)   # index 69
+        obs.append(aw_lvl / 3.0)   # index 70
 
         return obs
