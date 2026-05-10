@@ -182,7 +182,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     if action_id == 0:
         return True, ""
 
-    # Completed structure counts (indices 6-20, normalised /10)
+    # Completed structure counts (indices 12-26, normalised /10)
     has_nexus = obs[_IDX_NEXUS] > _EPS
     has_pylon = obs[_IDX_PYLON] > _EPS
     has_gateway = obs[_IDX_GATEWAY] > _EPS
@@ -450,7 +450,7 @@ class GameState:
         for u in UNITS:
             obs.append(self.pending_units[u] / 30.0)
 
-        # Idle production building features (indices 52-55)
+        # Idle production building features (indices 58-61)
         gw_wg_total = self.counts["GATEWAY"] + self.counts["WARPGATE"]
         gw_wg_busy = (self.pending_units["ZEALOT"]
                       + self.pending_units["STALKER"]
@@ -467,15 +467,15 @@ class GameState:
         idle_wg = max(
             0, wg_count - max(0, gw_wg_busy - self.counts["GATEWAY"]))
 
-        obs.append(idle_gw_wg / 5.0)   # index 52
-        obs.append(idle_sg / 5.0)   # index 53
-        obs.append(idle_robo / 5.0)   # index 54
-        obs.append(idle_wg / 5.0)   # index 55
+        obs.append(idle_gw_wg / 5.0)   # index 58
+        obs.append(idle_sg / 5.0)   # index 59
+        obs.append(idle_robo / 5.0)   # index 60
+        obs.append(idle_wg / 5.0)   # index 61
 
-        # Upgrade levels (indices 56-58): highest level commanded, normalised /3.
-        obs.append(self.upgrade_lvls["GROUND_WEAPONS"] / 3.0)  # index 56
-        obs.append(self.upgrade_lvls["SHIELDS"] / 3.0)         # index 57
-        obs.append(self.upgrade_lvls["AIR_WEAPONS"] / 3.0)     # index 58
+        # Upgrade levels (indices 62-64): highest level commanded, normalised /3.
+        obs.append(self.upgrade_lvls["GROUND_WEAPONS"] / 3.0)  # index 62
+        obs.append(self.upgrade_lvls["SHIELDS"] / 3.0)         # index 63
+        obs.append(self.upgrade_lvls["AIR_WEAPONS"] / 3.0)     # index 64
 
         assert len(
             obs) == OBS_SIZE, f"Obs size mismatch: {len(obs)} vs {OBS_SIZE}"

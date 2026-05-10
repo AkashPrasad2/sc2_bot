@@ -41,10 +41,10 @@ SEED = 54
 
 # "accuracy" = save model with best validation accuracy (better generalization)
 # "loss" = save model with lowest validation loss (better imitation)
-MODEL_SELECTION = "loss"  # Change to "accuracy" to switch
+MODEL_SELECTION = "accuracy"  # Change to "accuracy" to switch
 
 # keep the decisions diverse (not applied during training, only inference)
-INFERENCE_TEMPERATURE = 0.8
+INFERENCE_TEMPERATURE = 1.2
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ class ProtossMLPModel(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, nonlinearity="gelu")
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

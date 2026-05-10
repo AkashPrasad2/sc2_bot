@@ -113,7 +113,7 @@ class ObservationWrapper:
         for unit in PROTOSS_UNITS:
             obs.append(bot.already_pending(unit) / 30.0)
 
-        # Idle production buildings (indices 52-55)
+        # Idle production buildings (indices 58-61)
         # Gateway + Warpgate combined pool: idle if building count exceeds
         # the number of gateway-type units currently in production.
         gw_count = bot.structures(UnitTypeId.GATEWAY).ready.amount
@@ -139,10 +139,10 @@ class ObservationWrapper:
         # not currently warping anything.
         idle_wg = max(0, wg_count - max(0, gw_wg_busy - gw_count))
 
-        obs.append(idle_gw_wg / 5.0)   # index 52
-        obs.append(idle_sg / 5.0)   # index 53
-        obs.append(idle_robo / 5.0)   # index 54
-        obs.append(idle_wg / 5.0)   # index 55
+        obs.append(idle_gw_wg / 5.0)   # index 58
+        obs.append(idle_sg / 5.0)   # index 59
+        obs.append(idle_robo / 5.0)   # index 60
+        obs.append(idle_wg / 5.0)   # index 61
 
         # Upgrade levels: committed = completed OR currently being researched.
         # Matches the pending-or-complete convention used in the replay parser.
@@ -172,8 +172,8 @@ class ObservationWrapper:
             UpgradeId.PROTOSSAIRWEAPONSLEVEL3,
         ])
 
-        obs.append(gw_lvl / 3.0)   # index 56
-        obs.append(sh_lvl / 3.0)   # index 57
-        obs.append(aw_lvl / 3.0)   # index 58
+        obs.append(gw_lvl / 3.0)   # index 62
+        obs.append(sh_lvl / 3.0)   # index 63
+        obs.append(aw_lvl / 3.0)   # index 64
 
         return obs
