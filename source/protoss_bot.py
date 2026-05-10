@@ -36,11 +36,7 @@ class ProtossBot(BotAI):
             self.action_cooldown -= 1
             return
 
-        class OpponentInfo:
-            def __init__(self, supply_used):
-                self.supply_used = supply_used
-
-        obs = self.obs_wrapper.get_observation(self, OpponentInfo(0))
+        obs = self.obs_wrapper.get_observation(self)
 
         action_id = predict_action(
             self.model,

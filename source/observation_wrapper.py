@@ -72,7 +72,7 @@ class ObservationWrapper:
                 + 4
                 + 3)
 
-    def get_observation(self, bot: BotAI, opponent=None):
+    def get_observation(self, bot: BotAI):
         obs = []
 
         # Base features

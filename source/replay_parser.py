@@ -147,24 +147,18 @@ _EPS = 0.01
 def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     """
     Pure-numpy mirror of action_mask.build_legal_mask for a single obs vector,
-    with PARSER-SPECIFIC relaxations to avoid false conflict demotions.
+    with parser-specific relaxations to avoid false conflict demotions.
 
     Key differences from the inference mask (action_mask.py):
     ----------------------------------------------------------------
     1. probe_queue_ok is NOT checked. The parser's pending probe count drifts
        over long games causing false-illegal calls on valid probe trains.
 
-    2. Prerequisite structure checks use PENDING-OR-COMPLETE rather than
-       COMPLETE-ONLY. Pro players queue the next building the moment the
-       prerequisite is placed (not when it finishes, ~60s later). The window
-       snapshot is taken at the START of the window, so a gateway placed at
-       t=128s won't appear as completed until t~190s. Using pending-or-complete
-       means "the player has committed to building this" which is the right
-       semantic for parsing intent.
-
-       This affects: build_cyberneticscore (needs gateway), train_adept/stalker
-       (needs cybcore), warp_in_stalker (needs warpgate), train_immortal (needs
-       robo), train_voidray (needs stargate), and the entire tech tree chain.
+    2. Prerequisite structure checks use PENDING-OR-COMPLETE (PoC) rather
+       than COMPLETE-ONLY. The window snapshot is taken at the START of the window, so a gateway 
+       placed at t=128s won't appear as completed until t~190s. Using PoC
+       means we still capture these important events like gw and cybercores, and if the player is able to build it, 
+       then it would be legal for our model to build it at that time (the game state is just stale)
 
     3. 1-of building caps are applied (same as inference mask): cybercore,
        twilight council, fleet beacon, templar archive. Pros never build
@@ -213,7 +207,7 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     pend_warpgate = obs[_P + 3] > _EPS   # WARPGATE is 4th
     pend_temparch = obs[_P + 8] > _EPS   # TEMPLARARCHIVE is 9th
 
-    # Pending-or-complete: "player has committed to building this"
+    # Pending-or-complete:
     poc_pylon = has_pylon or pend_pylon
     poc_gateway = has_gateway or pend_gateway
     poc_cybcore = has_cybcore or pend_cybcore
@@ -224,11 +218,13 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
     poc_temparch = has_temparch or pend_temparch
 
     # Building caps
-    under_cybcore_cap = obs[_IDX_CYBERNETICSCORE] < (1.5 / 10.0)
-    no_twilight = not has_twilight
-    no_fleet = not has_fleet
-    no_temparch = not has_temparch
+    under_cybcore_cap = obs[_IDX_CYBERNETICSCORE] < (1.5 / 10.0) # don't want more than 2 cybercores
+    no_twilight = not has_twilight # only 1 twilight council
+    no_fleet = not has_fleet # only 1 fleet beacon
+    no_temparch = not has_temparch # only 1 templar archive
 
+    # rules for each action id
+    # action_id : prerequisite
     rules = {
         # train_probe: needs nexus (no queue cap in parser)
         1:  (has_nexus, "needs nexus"),
@@ -333,11 +329,11 @@ def _action_legal_numpy(obs: list[float], action_id: int) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# GameState  (unchanged from original)
+# GameState
 # ---------------------------------------------------------------------------
 
 class GameState:
-    """Tracks full Protoss game state including in-progress counts."""
+    """Tracks full Protoss game state."""
 
     def __init__(self):
         self.time = 0.0
@@ -357,9 +353,8 @@ class GameState:
         # Pending-or-complete convention (set when research command fires).
         self.upgrade_lvls = {"GROUND_WEAPONS": 0, "SHIELDS": 0, "AIR_WEAPONS": 0}
 
-        self.opp_supply_used = 0.0
-
     def update_from_stats(self, event: PlayerStatsEvent):
+        # get snapshot of minerals, etc.. Fires every ~8 seconds
         self.time = event.second
         self.minerals = getattr(event, "minerals_current",
                                 getattr(event, "minerals",  0))
@@ -369,10 +364,6 @@ class GameState:
             event, "supply_used",  getattr(event, "food_used", 0))
         self.supply_cap = getattr(
             event, "supply_made",  getattr(event, "food_made", 0))
-
-    def update_opp_from_stats(self, event: PlayerStatsEvent):
-        self.opp_supply_used = getattr(
-            event, "supply_used", getattr(event, "food_used", 0))
 
     def on_build_command(self, ability_name: str):
         key = BUILD_COMMAND_TO_STRUCTURE.get(ability_name)
@@ -483,7 +474,7 @@ class GameState:
 
 
 # ---------------------------------------------------------------------------
-# ReplayParser  (unchanged from original except conflict log is more specific)
+# ReplayParser
 # ---------------------------------------------------------------------------
 
 class ReplayParser:
@@ -555,18 +546,15 @@ class ReplayParser:
             return None
 
         protoss_player = None
-        zerg_player = None
         for player in replay.players:
             if player.play_race == "Protoss":
                 protoss_player = player
-            elif player.play_race == "Zerg":
-                zerg_player = player
+                break
 
-        if protoss_player is None or zerg_player is None:
+        if protoss_player is None:
             return None
 
         pid = protoss_player.pid
-        opp_pid = zerg_player.pid
 
         state = GameState()
         G = GRID_INTERVAL_SECONDS
@@ -591,8 +579,6 @@ class ReplayParser:
             if isinstance(event, PlayerStatsEvent):
                 if event.player.pid == pid:
                     state.update_from_stats(event)
-                elif event.player.pid == opp_pid:
-                    state.update_opp_from_stats(event)
 
             elif isinstance(event, (UnitBornEvent, UnitDoneEvent)):
                 unit = event.unit
@@ -735,7 +721,7 @@ class ReplayParser:
                 replay = sc2reader.load_replay(path, load_level=4)
 
                 races = {p.play_race for p in replay.players}
-                if races != {"Protoss", "Zerg"}:
+                if "Protoss" not in races:
                     skipped += 1
                     continue
 
