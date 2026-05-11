@@ -6,7 +6,7 @@ from sc2.player import Bot, Computer
 from sc2.ids.unit_typeid import UnitTypeId
 
 from observation_wrapper import ObservationWrapper
-from model import load_model, predict_action
+from model import load_model, predict_action, MAX_CONTEXT
 from helpers import auto_saturate_assimilators, set_production_rally_points, rally_idle_army, auto_attack, defend_structures
 import actions
 
@@ -21,6 +21,7 @@ class ProtossBot(BotAI):
         self.obs_wrapper = ObservationWrapper()
         self.model = load_model(CHECKPOINT_PATH, device=DEVICE)
         self.action_cooldown = 0
+        self.obs_history = []   # rolling window of observation vectors
 
     async def on_step(self, iteration: int):
         # --- Always-on behaviours ---
@@ -37,10 +38,15 @@ class ProtossBot(BotAI):
             return
 
         obs = self.obs_wrapper.get_observation(self)
+        self.obs_history.append(obs)
+
+        # Cap context window to bound inference latency
+        if len(self.obs_history) > MAX_CONTEXT:
+            self.obs_history = self.obs_history[-MAX_CONTEXT:]
 
         action_id = predict_action(
             self.model,
-            obs,
+            self.obs_history,
             device=DEVICE,
         )
 

@@ -1,13 +1,16 @@
 """
-SC2 Protoss Imitation Learning — MLP Model + Training Script
-=============================================================
+SC2 Protoss Imitation Learning — Transformer Model + Training Script
+=====================================================================
 Architecture:
-    obs (71,) -> MLP head (71->128->64->35 logits)
+    obs (71,) -> input proj (71->128) -> sinusoidal pos enc
+    -> 4x causal TransformerEncoderLayer (d=128, heads=4, ff=256)
+    -> LayerNorm -> Linear (128->35 logits)
 
 Legal-action masking applied consistently in BOTH the training loop
 and predict_action, via the shared action_mask module.
 """
 
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -22,17 +25,21 @@ from action_mask import apply_legal_mask, apply_training_mask
 # Config
 # ---------------------------------------------------------------------------
 DATASET_PATH = r"C:\dev\BetaStar\replays\parsed\dataset.npz"
-CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints" # store trained models here
+CHECKPOINT_DIR = r"C:\dev\BetaStar\checkpoints"
 
 OBS_SIZE = 71   # 1 time + 4 min + 4 gas + 3 base + 15 structures + 11 units + 15 pending structs + 11 pending units + 4 idle + 3 upgrade levels
 NUM_ACTIONS = 35   # action 0 = do_nothing, kept for index stability
 
-# Model hyper-params
-HEAD_HIDDEN = 128
-DROPOUT = 0.3
+# Transformer hyper-params
+D_MODEL = 128
+NHEAD = 4
+NUM_LAYERS = 4
+DIM_FEEDFORWARD = 256
+DROPOUT = 0.1
+MAX_SEQ_LEN = 2048   # positional encoding capacity
 
 # Training hyper-params
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 100
 LR = 3e-4
 VAL_SPLIT = 0.15
@@ -45,35 +52,87 @@ MODEL_SELECTION = "accuracy"
 # keep the decisions diverse (not applied during training, only inference)
 INFERENCE_TEMPERATURE = 1.2
 
+# Cap context window at inference to bound latency
+MAX_CONTEXT = 256
+
+
+# ---------------------------------------------------------------------------
+# Positional Encoding
+# ---------------------------------------------------------------------------
+
+class SinusoidalPositionalEncoding(nn.Module):
+    """Fixed sinusoidal positional encoding (Vaswani et al. 2017)."""
+
+    def __init__(self, d_model: int, max_len: int = 2048):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float()
+            * -(math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe.unsqueeze(0))   # (1, max_len, d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, T, d_model) -> (B, T, d_model)"""
+        return x + self.pe[:, :x.size(1)]
+
 
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
 
-class ProtossMLPModel(nn.Module):
+class ProtossTransformerModel(nn.Module):
     """
-    Pure MLP: Takes current game state and decides on next action to take.
+    Causal (decoder-only) transformer for sequential action prediction.
+    Takes a sequence of game-state observations and predicts an action at
+    each timestep, attending only to the current and past observations.
     """
 
     def __init__(
         self,
-        obs_size:    int = OBS_SIZE,
-        head_hidden: int = HEAD_HIDDEN,
-        num_actions: int = NUM_ACTIONS,
-        dropout:     float = DROPOUT,
+        obs_size:        int = OBS_SIZE,
+        d_model:         int = D_MODEL,
+        nhead:           int = NHEAD,
+        num_layers:      int = NUM_LAYERS,
+        dim_feedforward: int = DIM_FEEDFORWARD,
+        dropout:         float = DROPOUT,
+        num_actions:     int = NUM_ACTIONS,
+        max_seq_len:     int = MAX_SEQ_LEN,
     ):
         super().__init__()
+        self.d_model = d_model
 
-        self.head = nn.Sequential(
-            nn.Linear(obs_size, head_hidden),
-            nn.LayerNorm(head_hidden),
+        # Project flat observation to embedding space
+        self.input_proj = nn.Sequential(
+            nn.Linear(obs_size, d_model),
+            nn.LayerNorm(d_model),
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(head_hidden, head_hidden // 2),
-            nn.LayerNorm(head_hidden // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(head_hidden // 2, num_actions),
+        )
+
+        # Sinusoidal positional encoding
+        self.pos_encoding = SinusoidalPositionalEncoding(d_model, max_seq_len)
+
+        # Causal transformer (using TransformerEncoder with causal mask)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+            activation='gelu',
+            norm_first=True,   # Pre-norm for better training stability
+        )
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # Output head
+        self.output_head = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, num_actions),
         )
 
         self._init_weights()
@@ -81,20 +140,35 @@ class ProtossMLPModel(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-                nn.init.zeros_(m.bias)
+                nn.init.xavier_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: (batch, seq_len, obs_size) or (batch, obs_size)
+            x: (B, T, obs_size) — sequence of observations
         Returns:
-            logits: same leading dims, last dim = num_actions
+            logits: (B, T, num_actions)
         """
-        shape = x.shape
-        flat = x.reshape(-1, shape[-1])
-        logits = self.head(flat)
-        return logits.reshape(*shape[:-1], -1)
+        B, T, _ = x.shape
+
+        # Project to embedding space
+        h = self.input_proj(x)              # (B, T, d_model)
+
+        # Add positional encoding
+        h = self.pos_encoding(h)            # (B, T, d_model)
+
+        # Generate causal mask (upper-triangular = -inf)
+        causal_mask = nn.Transformer.generate_square_subsequent_mask(
+            T, device=x.device
+        )
+
+        # Apply transformer with causal masking
+        h = self.transformer(h, mask=causal_mask, is_causal=True)
+
+        # Output logits
+        return self.output_head(h)          # (B, T, num_actions)
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +272,7 @@ def train_epoch(model, loader, optimizer, criterion, device):
             bad = ~label_logits[:, 0].isfinite()
             if bad.any():
                 n_bad = bad.sum().item()
-                print(f"  [WARN] {n_bad} label/mask conflicts — silencing. "
+                print(f"  [WARN] {n_bad} label/mask conflicts -- silencing. "
                       f"Run conflict_diagnostic.py.")
                 flat_acts = flat_acts.clone()
                 flat_acts[real_idx[bad]] = -100
@@ -289,7 +363,7 @@ def train():
         val_ds, batch_size=BATCH_SIZE, shuffle=False,
         collate_fn=collate_sequences, num_workers=0)
 
-    model = ProtossMLPModel().to(device)
+    model = ProtossTransformerModel().to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
 
@@ -329,18 +403,22 @@ def train():
         if is_better(current_metric, best_val_metric):
             best_val_metric = current_metric
             torch.save({
-                "epoch":       epoch,
-                "model_state": model.state_dict(),
-                "val_loss":    val_loss,
-                "val_acc":     val_acc,
-                "obs_size":    OBS_SIZE,
-                "num_actions": NUM_ACTIONS,
-                "head_hidden": HEAD_HIDDEN,
+                "epoch":           epoch,
+                "model_state":     model.state_dict(),
+                "val_loss":        val_loss,
+                "val_acc":         val_acc,
+                "obs_size":        OBS_SIZE,
+                "num_actions":     NUM_ACTIONS,
+                "d_model":         D_MODEL,
+                "nhead":           NHEAD,
+                "num_layers":      NUM_LAYERS,
+                "dim_feedforward":  DIM_FEEDFORWARD,
+                "max_seq_len":     MAX_SEQ_LEN,
             }, best_path)
             if MODEL_SELECTION == "accuracy":
-                print(f"         ↑ new best (acc={val_acc:.3%}) saved to {best_path}")
+                print(f"         ^ new best (acc={val_acc:.3%}) saved to {best_path}")
             else:
-                print(f"         ↑ new best (loss={val_loss:.4f}) saved to {best_path}")
+                print(f"         ^ new best (loss={val_loss:.4f}) saved to {best_path}")
 
     if MODEL_SELECTION == "accuracy":
         print(f"\nTraining complete. Best val accuracy: {best_val_metric:.3%}")
@@ -353,12 +431,16 @@ def train():
 # Inference helpers
 # ---------------------------------------------------------------------------
 
-def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossMLPModel:
+def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossTransformerModel:
     ckpt = torch.load(checkpoint_path, map_location=device)
-    model = ProtossMLPModel(
+    model = ProtossTransformerModel(
         obs_size=ckpt["obs_size"],
         num_actions=ckpt["num_actions"],
-        head_hidden=ckpt.get("head_hidden", HEAD_HIDDEN),
+        d_model=ckpt.get("d_model", D_MODEL),
+        nhead=ckpt.get("nhead", NHEAD),
+        num_layers=ckpt.get("num_layers", NUM_LAYERS),
+        dim_feedforward=ckpt.get("dim_feedforward", DIM_FEEDFORWARD),
+        max_seq_len=ckpt.get("max_seq_len", MAX_SEQ_LEN),
     )
     model.load_state_dict(ckpt["model_state"])
     model.eval()
@@ -366,29 +448,34 @@ def load_model(checkpoint_path: str, device: str = "cpu") -> ProtossMLPModel:
 
 
 def predict_action(
-    model:       ProtossMLPModel,
-    obs:         list[float],
+    model:       ProtossTransformerModel,
+    obs_history: list[list[float]],
     device:      str = "cpu",
     temperature: float = INFERENCE_TEMPERATURE,
 ) -> int:
     """
-    Single-step inference with legal masking + temperature sampling.
+    Sequence inference with legal masking + temperature sampling.
 
     Args:
-        model:       trained ProtossMLPModel
-        obs:         flat observation vector (length OBS_SIZE)
+        model:       trained ProtossTransformerModel
+        obs_history: list of flat observation vectors (oldest first)
         device:      torch device string
-        temperature: softmax temperature. Lower = sharper, higher = more random.
+        temperature: softmax temperature
 
     Returns:
         action_id
     """
-    x = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
+    x = torch.tensor(obs_history, dtype=torch.float32).unsqueeze(0).to(device)
+    # x: (1, T, obs_size)
 
     with torch.no_grad():
-        logits = model(x)  # (1, num_actions)
+        logits = model(x)   # (1, T, num_actions)
 
-    masked_logits = apply_legal_mask(logits, x)
+    # Take the last position's logits and the last obs for masking
+    last_logits = logits[:, -1, :]   # (1, num_actions)
+    last_obs = x[:, -1, :]           # (1, obs_size)
+
+    masked_logits = apply_legal_mask(last_logits, last_obs)
     probs = torch.softmax(masked_logits[0] / temperature, dim=-1)
     return int(torch.multinomial(probs, 1).item())
 
